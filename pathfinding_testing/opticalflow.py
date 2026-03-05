@@ -15,7 +15,7 @@ def point_grid(frame, step):
     return np.array(points, dtype=np.float32).reshape(-1, 1, 2)
 
 def depth_from_flow(pixel_coord, pixel_flow, eigen_vel, eigen_rot_rate):
-    if np.linalg.norm(eigen_vel) < 0.1:
+    if np.linalg.norm(eigen_vel) < 0.2:
         return None
     x, y = pixel_coord
     A = np.array([
@@ -31,8 +31,6 @@ def depth_from_flow(pixel_coord, pixel_flow, eigen_vel, eigen_rot_rate):
     Z = np.dot(t,t) / np.dot(trans_flow, t)
     return Z
 
-
-
 def world_frame_vel_to_local(eigen_vel, eigen_att):
     R = tf.Rotation.from_euler('xyz', eigen_att).as_matrix()
     local_vel = R.T @ eigen_vel
@@ -43,9 +41,98 @@ def world_frame_rot_to_local(eigen_rot_rate, eigen_att):
     local_rot = R.T @ eigen_rot_rate
     return local_rot
 
-# 1. Setup Paths
-folder_path = "/home/ruben/Downloads/AE4317_2019_datasets/cyberzoo_poles/20190121-135009"
-csv_path = os.path.join(folder_path, "/home/ruben/Downloads/AE4317_2019_datasets/cyberzoo_poles/20190121-135121.csv") # Update filename if different
+K = np.array([
+    [324.5960989 ,   0.        , 265.97140012],
+     [0.         ,325.14620072 ,213.11778828],
+    [0.          , 0.          , 1.],
+    ])
+D = np.array([
+    [-0.05242866],
+     [0.05816831],
+     [-0.10717978],
+     [0.06408123],
+    ])
+map1, map2 = cv.fisheye.initUndistortRectifyMap(K, D, np.eye(3), K, (520, 240), cv.CV_16SC2)
+Knew = np.array([
+    [293.2446961 ,   0.     ,    269.86206627],
+ [  0.     ,    293.74166585, 231.41389943],
+ [  0.    ,       0.   ,        1.        ],
+])
+fx, fy = Knew[0, 0], Knew[1, 1]
+cx, cy = Knew[0, 2], Knew[1, 2]
+
+def normalize_pixel_coords(p):
+    x = (p[0] - cx) / fx
+    y = (p[1] - cy) / fy
+    return np.array([x, y])
+
+def normalize_pixel_flow(u):
+    u_x = u[0] / fx
+    u_y = u[1] / fy
+    return np.array([u_x, u_y])
+
+def undistort_image(image):
+    undistorted_img = cv.remap(image, map1, map2, interpolation=cv.INTER_LINEAR, borderMode=cv.BORDER_CONSTANT)
+    return undistorted_img
+
+def load_image(path):
+    img = cv.imread(path)
+    if img is not None:
+        img = cv.rotate(img, cv.ROTATE_90_COUNTERCLOCKWISE)
+        img = undistort_image(img)
+    return img
+
+def get_img_time_from_filename(filename):
+    return float(os.path.basename(filename).replace(".jpg", "")) / 1000000.0
+
+def draw_point_with_depth(frame, pt, z, fac=100):
+    """Draw a filled circle at pt and a small label with the z value to its right."""
+    a, b = int(round(pt[0])), int(round(pt[1]))
+
+    # color based on z (BGR for OpenCV), clamp to [0,255]
+    if z is None:
+        circle_color = (255, 255, 255)
+        text = "n/a"
+    else:
+        delta = int(z * fac)
+        blue = 0
+        green = max(0, min(255, 200 - delta))
+        red = max(0, min(255, 200 + delta))
+        circle_color = (blue, green, red)
+        text = f"{z:.2f} m"
+
+    # draw circle
+    cv.circle(frame, (a, b), 4, circle_color, -1)
+
+    # prepare text background and text color (choose contrasting text color)
+    font = cv.FONT_HERSHEY_SIMPLEX
+    scale = 0.4
+    thickness = 1
+    (tw, th), baseline = cv.getTextSize(text, font, scale, thickness)
+    x0 = a + 6
+    y0 = b - th // 2 - baseline
+    x1 = x0 + tw
+    y1 = b + th // 2
+
+    # clamp rectangle coords to image bounds
+    h_img, w_img = frame.shape[:2]
+    x0 = max(0, min(w_img - 1, x0))
+    x1 = max(0, min(w_img - 1, x1))
+    y0 = max(0, min(h_img - 1, y0))
+    y1 = max(0, min(h_img - 1, y1))
+
+    cv.rectangle(frame, (x0, y0), (x1, y1), circle_color, cv.FILLED)
+
+    # choose white or black text depending on brightness of the background
+    brightness = (circle_color[0] + circle_color[1] + circle_color[2]) / 3
+    text_color = (0, 0, 0) if brightness > 128 else (255, 255, 255)
+
+    cv.putText(frame, text, (x0, y1 - baseline), font, scale, text_color, thickness, cv.LINE_AA)
+
+
+# 1. Setup Paths 20190121-142935
+folder_path = r"C:\Users\super\Downloads\AE4317_2019_datasets\AE4317_2019_datasets\cyberzoo_poles_panels_mats\20190121-142935"
+csv_path = r"C:\Users\super\Downloads\AE4317_2019_datasets\AE4317_2019_datasets\cyberzoo_poles_panels_mats\20190121-142943.csv"
 
 # 2. Load and Prepare Data
 df = pd.read_csv(csv_path)
@@ -56,20 +143,22 @@ feature_params = dict(maxCorners=50, qualityLevel=0.000001, minDistance=20, bloc
 lk_params = dict(winSize=(15, 15), maxLevel=2, criteria=(cv.TERM_CRITERIA_EPS | cv.TERM_CRITERIA_COUNT, 10, 0.03))
 
 # 3. Initialize
-old_frame = cv.imread(image_files[0])
+old_frame = load_image(image_files[0])
 old_gray = cv.cvtColor(old_frame, cv.COLOR_BGR2GRAY)
 p0 = cv.goodFeaturesToTrack(old_gray, mask=None, **feature_params)
+last_t = get_img_time_from_filename(image_files[0])
 
 w, h = old_gray.shape[::-1]
 
 for i in range(1, len(image_files)):
-    frame = cv.imread(image_files[i])
+    frame = load_image(image_files[i])
     if frame is None: break
     
     # --- SYNC LOGIC ---
     # Extract timestamp from filename (75044792 -> 75.044792)
-    filename = os.path.basename(image_files[i])
-    img_time = float(filename.replace(".jpg", "")) / 1000000.0 # Convert to same scale as CSV
+    img_time = get_img_time_from_filename(image_files[i])
+    dt = img_time - last_t
+    last_t = img_time
     
     # Find the closest row in CSV
     idx = (df['time'] - img_time).abs().idxmin()
@@ -99,12 +188,11 @@ for i in range(1, len(image_files)):
             c, d = old.ravel()
             dx = a - c
             dy = b - d
-            u = np.array([dx / w, dy / h]) # measured flow in pixels
-            p = np.array([a/ w, b / h]) # pixel coordinate
+            u = normalize_pixel_flow(np.array([dx, dy])) # measured flow in pixels
+            u /= dt
+            p = normalize_pixel_coords(np.array([a, b])) # pixel coordinate
             z = depth_from_flow(p, u, v, r)
-
-            color = (0, 200-int(z*50), 200+int(z*50)) if z is not None else (255, 255, 255)
-            cv.circle(frame, (int(a), int(b)), 4, color, -1)
+            draw_point_with_depth(frame, (a, b), z, fac=10)
 
         p0 = good_new.reshape(-1, 1, 2)
 
