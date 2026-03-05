@@ -1,0 +1,34 @@
+<!DOCTYPE module SYSTEM "module.dtd">
+
+<module name="pole_detector_2" dir="AF_8_V1">
+  <doc>
+    <description>
+      Detects orange poles using C++.
+      Directly processes YUV422 buffers for maximum performance.
+    </description>
+  </doc>
+
+  <settings>
+    <dl_settings>
+      <dl_settings name="Pole">
+        <dl_setting var="POLE_Y_MIN" min="0" step="1" max="255" module="modules/AF_8_V1/pole_detector_2" shortname="y_min"/>
+        <dl_setting var="POLE_V_MIN" min="0" step="1" max="255" module="modules/AF_8_V1/pole_detector_2" shortname="v_min"/>
+      </dl_settings>
+    </dl_settings>
+  </settings>
+
+  <dep>
+    <depends>video_thread</depends>
+  </dep>
+
+  <header>
+    <file name="pole_detector_2.h"/>
+  </header>
+
+  <init fun="pole_detector_2_init()"/>
+  <periodic fun="pole_detector_2_periodic()" freq="10"/>
+
+  <makefile target="ap|nps">
+    <file name="pole_detector_2.cpp"/>
+  </makefile>
+</module>
