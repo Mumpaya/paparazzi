@@ -1,4 +1,4 @@
-#include "modules/our_orange_avoider/controller.h"
+#include "modules/AF_8_V1/controller.h"
 #include "firmwares/rotorcraft/guidance/guidance_h.h"
 #include "modules/core/abi.h"
 #include "state.h"
@@ -95,4 +95,9 @@ void controller_periodic(void) {
     }
 }
 
+void orange_avoider_guided_retreat(void) {
+    // stub — retreat handled by controller_periodic state machine
+}
+
 } // extern "C"
+
