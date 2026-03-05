@@ -16,6 +16,7 @@ extern float gate_target_dist;
 // Main functions called by Paparazzi
 void controller_init(void);
 void controller_periodic(void);
+void orange_avoider_guided_retreat(void);
 
 #ifdef __cplusplus
 }

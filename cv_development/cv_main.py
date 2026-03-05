@@ -25,14 +25,14 @@ CALIB_IMAGES    = os.path.join(DATASET_ROOT, "calibration_frontcam/20190121-1634
 CALIB_SAVE_PATH = os.path.join(SCRIPT_DIR, "calibration_data.npz")
 
 # IN SIMULATION:
-FLIGHT_FOLDER   = os.path.join(DATASET_ROOT, "sim_poles/20190121-160844")
-FLIGHT_CSV      = os.path.join(DATASET_ROOT, "sim_poles/20190121-160857.csv")
-POLES_CSV       = os.path.join(DATASET_ROOT, "sim_poles/pole_locations.csv")
+# FLIGHT_FOLDER   = os.path.join(DATASET_ROOT, "sim_poles/20190121-160844")
+# FLIGHT_CSV      = os.path.join(DATASET_ROOT, "sim_poles/20190121-160857.csv")
+# POLES_CSV       = os.path.join(DATASET_ROOT, "sim_poles/pole_locations.csv")
 
 # IN CYBERZOO:
-# FLIGHT_FOLDER = os.path.join(DATASET_ROOT, "cyberzoo_poles/20190121-135009")
-# FLIGHT_CSV    = os.path.join(DATASET_ROOT, "cyberzoo_poles/20190121-135121.csv")  
-# POLES_CSV = os.path.join(DATASET_ROOT, "cyberzoo_poles/pole_locations.csv")
+FLIGHT_FOLDER = os.path.join(DATASET_ROOT, "cyberzoo_poles/20190121-135009")
+FLIGHT_CSV    = os.path.join(DATASET_ROOT, "cyberzoo_poles/20190121-135121.csv")  
+POLES_CSV = os.path.join(DATASET_ROOT, "cyberzoo_poles/pole_locations.csv")
 
 idx_pole = 205#225#142#187
 idx_no_pole = 0
@@ -110,60 +110,60 @@ plt.show(block=False)
 # detector_nc = PoleDetector(use_clahe=False, canny_low=50, canny_high=150)
 
 
-# # ── Pole detection on 4 frames ────────────────────────────────────────────────
-# detector     = PoleDetector(use_clahe=True, canny_low=50, canny_high=150)
+# ── Pole detection on 4 frames ────────────────────────────────────────────────
+detector     = PoleDetector(use_clahe=True, canny_low=50, canny_high=150)
 
 
 
-# detector = PoleDetector(
-#     use_clahe        = True,
-#     canny_low        = 50,
-#     canny_high       = 200,
-#     hough_min_length = 80,
-#     hough_max_gap    = 25,
-#     vertical_tol_deg = 40.0,
-#     cluster_gap      = 100,
-#     min_aspect_ratio = 2.5,
-#     max_aspect_ratio = 10.0,
-#     min_height_frac  = 0.30,
-#     border_margin    = 10,
-#     max_interior_edge_density = 0.10,
-# )
+detector = PoleDetector(
+    use_clahe        = True,
+    canny_low        = 50,
+    canny_high       = 200,
+    hough_min_length = 80,
+    hough_max_gap    = 25,
+    vertical_tol_deg = 40.0,
+    cluster_gap      = 100,
+    min_aspect_ratio = 2.5,
+    max_aspect_ratio = 10.0,
+    min_height_frac  = 0.30,
+    border_margin    = 10,
+    max_interior_edge_density = 0.10,
+)
 
-# pole_indices = [142, 187, 205, 225]
-# pole_samples = [image_files[i] for i in pole_indices]
+pole_indices = [142, 187, 205, 225]
+pole_samples = [image_files[i] for i in pole_indices]
 
-# fig, axes = plt.subplots(4, 4, figsize=(12, 7))
-# fig.suptitle("Pole Detection — 4 sample frames", fontsize=11)
+fig, axes = plt.subplots(4, 4, figsize=(12, 7))
+fig.suptitle("Pole Detection — 4 sample frames", fontsize=11)
 
-# row_titles = ["Input", "CLAHE + Blurred", "Canny Edges", "Detections"]
-# for row, title in enumerate(row_titles):
-#     axes[row][0].set_ylabel(title, fontsize=9, rotation=90, labelpad=5, va="center")
+row_titles = ["Input", "CLAHE + Blurred", "Canny Edges", "Detections"]
+for row, title in enumerate(row_titles):
+    axes[row][0].set_ylabel(title, fontsize=9, rotation=90, labelpad=5, va="center")
 
-# for col, (fname, idx) in enumerate(zip(pole_samples, pole_indices)):
-#     img_bgr = cv2.imread(os.path.join(FLIGHT_FOLDER, fname))
-#     # und_bgr = cal.undistort(img_bgr)
+for col, (fname, idx) in enumerate(zip(pole_samples, pole_indices)):
+    img_bgr = cv2.imread(os.path.join(FLIGHT_FOLDER, fname))
+    # und_bgr = cal.undistort(img_bgr)
 
-#     rot_bgr = cv2.rotate(img_bgr, cv2.ROTATE_90_COUNTERCLOCKWISE)
+    rot_bgr = cv2.rotate(img_bgr, cv2.ROTATE_90_COUNTERCLOCKWISE)
 
-#     result, debug_img = detector.detect(rot_bgr)
-#     overlay = debug_img
+    result = detector.detect(rot_bgr)
+    overlay = detector.draw(rot_bgr, result)
+    
+    axes[0][col].imshow(cv2.cvtColor(rot_bgr, cv2.COLOR_BGR2RGB))
+    axes[1][col].imshow(result["blurred"], cmap="gray")
+    axes[2][col].imshow(result["edges"],   cmap="gray")
+    axes[3][col].imshow(cv2.cvtColor(overlay, cv2.COLOR_BGR2RGB))
 
-#     axes[0][col].imshow(cv2.cvtColor(rot_bgr, cv2.COLOR_BGR2RGB))
-#     axes[1][col].imshow(result["blurred"], cmap="gray")
-#     axes[2][col].imshow(result["edges"],   cmap="gray")
-#     axes[3][col].imshow(cv2.cvtColor(overlay, cv2.COLOR_BGR2RGB))
+    axes[0][col].set_title(f"idx={idx}", fontsize=8)
+    axes[3][col].set_xlabel(f"{len(result['boxes'])} pole(s)", fontsize=8)
 
-#     axes[0][col].set_title(f"idx={idx}", fontsize=8)
-#     axes[3][col].set_xlabel(f"{len(result['boxes'])} pole(s)", fontsize=8)
+    for row in range(4):
+        axes[row][col].axis("off")
 
-#     for row in range(4):
-#         axes[row][col].axis("off")
+    print(f"[idx={idx}] {fname} → {len(result['boxes'])} box(es): {result['boxes']}")
 
-#     print(f"[idx={idx}] {fname} → {len(result['boxes'])} box(es): {result['boxes']}")
-
-# plt.subplots_adjust(left=0.08, right=0.99, top=0.94, bottom=0.04, wspace=0.04, hspace=0.08)
-# plt.show()
+plt.subplots_adjust(left=0.08, right=0.99, top=0.94, bottom=0.04, wspace=0.04, hspace=0.08)
+plt.show(block=False)
 
 
 
@@ -313,7 +313,7 @@ for col, (fname, idx) in enumerate(zip(pole_samples, pole_indices)):
 
 plt.subplots_adjust(left=0.08, right=0.99, top=0.94, bottom=0.06,
                     wspace=0.04, hspace=0.12)
-plt.show(block=False)
+plt.show(block=True)
 
 
 
