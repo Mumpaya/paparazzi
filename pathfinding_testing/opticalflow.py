@@ -14,8 +14,19 @@ def point_grid(frame, step):
             points.append([x, y])
     return np.array(points, dtype=np.float32).reshape(-1, 1, 2)
 
-def depth_from_flow(pixel_coord, pixel_flow, eigen_vel, eigen_rot_rate):
-    if np.linalg.norm(eigen_vel) < 0.2:
+def depth_from_flow(pixel_coord, pixel_flow, eigen_vel, eigen_rot_rate,
+                    vel_thresh=0.01, denom_thresh=0.005, t_thresh=0.01):
+    """
+    Estimate depth Z from normalised optical flow.
+
+    Guards against instability:
+      - ignore frames with negligible body translation
+      - ignore points where the projected translation vector t is too small
+        (the point happens to be near the Focus of Expansion)
+      - ignore when denominator dot(u_trans, t) is near zero
+      - clamp result to a physically plausible range [z_min, z_max]
+    """
+    if np.linalg.norm(eigen_vel) < vel_thresh:
         return None
     x, y = pixel_coord
     A = np.array([
@@ -28,7 +39,23 @@ def depth_from_flow(pixel_coord, pixel_flow, eigen_vel, eigen_rot_rate):
     ])
     trans_flow = pixel_flow - B @ eigen_rot_rate
     t = A @ eigen_vel
-    Z = np.dot(t,t) / np.dot(trans_flow, t)
+
+    # Guard: projected translation at this pixel must be non-negligible
+    if np.linalg.norm(t) < t_thresh:
+        return None
+
+    denom = np.dot(trans_flow, t)
+
+    # Guard: denominator close to zero → Z undefined
+    if abs(denom) < denom_thresh:
+        return None
+
+    Z = np.dot(t, t) / denom
+
+    # Only physically meaningful, positive depth within a plausible range
+    # if Z < z_min or Z > z_max:
+    #     return None
+
     return Z
 
 def world_frame_vel_to_local(eigen_vel, eigen_att):
@@ -60,6 +87,7 @@ Knew = np.array([
 ])
 fx, fy = Knew[0, 0], Knew[1, 1]
 cx, cy = Knew[0, 2], Knew[1, 2]
+
 
 def normalize_pixel_coords(p):
     x = (p[0] - cx) / fx
@@ -133,10 +161,17 @@ def draw_point_with_depth(frame, pt, z, fac=100):
 # 1. Setup Paths 20190121-142935
 # folder_path = r"C:\Users\super\Downloads\AE4317_2019_datasets\AE4317_2019_datasets\cyberzoo_poles_panels_mats\20190121-142935"
 # csv_path = r"C:\Users\super\Downloads\AE4317_2019_datasets\AE4317_2019_datasets\cyberzoo_poles_panels_mats\20190121-142943.csv"
+folder_path = r"C:\Users\super\Downloads\AE4317_2019_datasets\AE4317_2019_datasets\sim_poles_panels_mats\20190121-161931"
+csv_path = r"C:\Users\super\Downloads\AE4317_2019_datasets\AE4317_2019_datasets\sim_poles_panels_mats\20190121-161955.csv"
+
+# folder_path = r"C:\Users\super\Downloads\own_datasets-20260306T115639Z-3-001\own_datasets\front_cam_gate\20260306-104712"
+# csv_path = r"C:\Users\super\Downloads\own_datasets-20260306T115639Z-3-001\own_datasets\front_cam_gate\20260306-105523.csv"
+# folder_path = r"C:\Users\super\Downloads\own_datasets-20260306T115639Z-3-001\own_datasets\Front_cam_try2\20260306-114544"
+# csv_path = r"C:\Users\super\Downloads\own_datasets-20260306T115639Z-3-001\own_datasets\Front_cam_try2\20260306-114725.csv"
 
 # ruben laptop
-folder_path = r"/home/ruben/Downloads/AE4317_2019_datasets/cyberzoo_poles_panels_mats/20190121-142935"
-csv_path = r"/home/ruben/Downloads/AE4317_2019_datasets/cyberzoo_poles_panels_mats/20190121-142943.csv"
+# folder_path = r"/home/ruben/Downloads/AE4317_2019_datasets/cyberzoo_poles_panels_mats/20190121-142935"
+# csv_path = r"/home/ruben/Downloads/AE4317_2019_datasets/cyberzoo_poles_panels_mats/20190121-142943.csv"
 
 # 2. Load and Prepare Data
 df = pd.read_csv(csv_path)
@@ -154,15 +189,16 @@ last_t = get_img_time_from_filename(image_files[0])
 
 w, h = old_gray.shape[::-1]
 
-for i in range(1, len(image_files)):
-    frame = load_image(image_files[i])
+for image_file in image_files[1::]:
+    frame = load_image(image_file)
     if frame is None: break
     
     # --- SYNC LOGIC ---
     # Extract timestamp from filename (75044792 -> 75.044792)
-    img_time = get_img_time_from_filename(image_files[i])
+    img_time = get_img_time_from_filename(image_file)
     dt = img_time - last_t
     last_t = img_time
+    print(dt)
     
     # Find the closest row in CSV
     idx = (df['time'] - img_time).abs().idxmin()
@@ -173,7 +209,7 @@ for i in range(1, len(image_files)):
     v = world_frame_vel_to_local(v, att)
     r = world_frame_rot_to_local(r, att)
     # ------------------
-
+    print(v)
     frame_gray = cv.cvtColor(frame, cv.COLOR_BGR2GRAY)
 
     # Refresh points if needed
@@ -205,7 +241,7 @@ for i in range(1, len(image_files)):
     # cv.putText(frame, f"Yaw_R: {yaw_rate:.2f} rad/s", (20, 60), cv.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
     
     cv.imshow('Sync Flow', frame)
-    if cv.waitKey(50) & 0xff == 27: break
+    if cv.waitKey(int(dt*1000)) & 0xff == 27: break
     old_gray = frame_gray.copy()
 
 cv.destroyAllWindows()
