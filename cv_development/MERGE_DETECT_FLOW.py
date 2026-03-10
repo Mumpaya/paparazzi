@@ -19,8 +19,8 @@ SMOOTHING_WINDOW = 5
 intensity_history = []
 
 # Paths
-folder_path = "/home/roan2003/paparazzi/cv_development/AE4317_2019_datasets/cyberzoo_poles/20190121-135009"
-csv_path = os.path.join(folder_path, "/home/roan2003/paparazzi/cv_development/AE4317_2019_datasets/cyberzoo_poles/20190121-135121.csv")
+folder_path = "/home/roan2003/paparazzi/cv_development/front_cam_gate-20260310T082155Z-1-001/front_cam_gate/20260306-104712"
+csv_path = os.path.join(folder_path, "/home/roan2003/paparazzi/cv_development/front_cam_gate-20260310T082155Z-1-001/front_cam_gate/20260306-105523.csv")
 
 # Load Telemetry
 df = pd.read_csv(csv_path)
@@ -92,6 +92,6 @@ for i in range(len(image_files)):
     cv.imshow('Integrated Tracker (Landscape)', overlay_frame)
     cv.imshow('Motion Heatmap (ROI)', heat)
     
-    if cv.waitKey(30) & 0xff == 27: break
-
+    delay = 200  # ms
+    if cv.waitKey(delay) & 0xff == 27: break
 cv.destroyAllWindows()
