@@ -6,6 +6,8 @@ import cv2
 import glob
 import os
 
+size = (520, 240)
+
 def _load_image(path):
     img = cv2.imread(path)
     img = cv2.rotate(img, cv2.ROTATE_90_COUNTERCLOCKWISE)
@@ -13,7 +15,7 @@ def _load_image(path):
 
 def run_calibration():
     # path to images
-    folder_path = r"C:\Users\super\Downloads\AE4317_2019_datasets\AE4317_2019_datasets\calibration_frontcam\20190121-163447"
+    folder_path = r"/home/ruben/Downloads/AE4317_2019_datasets/calibration_frontcam/20190121-163447"
     image_files = sorted(glob.glob(os.path.join(folder_path, "*.jpg")))
     good_im = np.zeros(len(image_files), dtype=bool)
 
@@ -67,14 +69,14 @@ def run_calibration():
     print(K)
     print()
     print(D)
-    Knew = cv2.fisheye.estimateNewCameraMatrixForUndistortRectify(K, D, (520, 240), np.eye(3),
-                                                                balance=0.0, new_size=(520, 240))
+    Knew = cv2.fisheye.estimateNewCameraMatrixForUndistortRectify(K, D, size, np.eye(3),
+                                                                balance=0.0, new_size=size)
     print()
     print(Knew)
 
     for i in range(len(image_files)):
         img = _load_image(image_files[i])
-        map1, map2 = cv2.fisheye.initUndistortRectifyMap(K, D, np.eye(3), K, (520, 240), cv2.CV_16SC2)
+        map1, map2 = cv2.fisheye.initUndistortRectifyMap(K, D, np.eye(3), K, size, cv2.CV_16SC2)
         undistorted_img = cv2.remap(img, map1, map2, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT)
 
         cv2.imshow('Original Image', img)
@@ -92,7 +94,7 @@ D = np.array([
      [-0.10717978],
      [0.06408123],
     ])
-map1, map2 = cv2.fisheye.initUndistortRectifyMap(K, D, np.eye(3), K, (520, 240), cv2.CV_16SC2)
+map1, map2 = cv2.fisheye.initUndistortRectifyMap(K, D, np.eye(3), K, size, cv2.CV_16SC2)
 Knew = np.array([
     [293.2446961 ,   0.     ,    269.86206627],
  [  0.     ,    293.74166585, 231.41389943],
@@ -114,3 +116,10 @@ def load_image(path):
 
 def get_img_time_from_filename(filename):
     return float(os.path.basename(filename).replace(".jpg", "")) / 1000000.0
+
+def main() -> None:
+    run_calibration()
+    pass
+
+if __name__ == '__main__':
+    main()
