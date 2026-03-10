@@ -141,8 +141,10 @@ def draw_point_with_depth(frame, pt, z, fac=100):
 # csv_path = r"C:\Users\super\Downloads\own_datasets-20260306T115639Z-3-001\own_datasets\Front_cam_try2\20260306-114725.csv"
 
 # ruben laptop
-folder_path = r"/home/ruben/Downloads/AE4317_2019_datasets/cyberzoo_poles_panels_mats/20190121-142935"
-csv_path = r"/home/ruben/Downloads/AE4317_2019_datasets/cyberzoo_poles_panels_mats/20190121-142943.csv"
+# folder_path = r"/home/ruben/Downloads/AE4317_2019_datasets/cyberzoo_poles_panels_mats/20190121-142935"
+# csv_path = r"/home/ruben/Downloads/AE4317_2019_datasets/cyberzoo_poles_panels_mats/20190121-142943.csv"
+folder_path = r"/home/ruben/Downloads/own_datasets/front_cam_gate/20260306-104712"
+csv_path = r"/home/ruben/Downloads/own_datasets/front_cam_gate/20260306-105523.csv"
 
 # 2. Load and Prepare Data
 df = pd.read_csv(csv_path)
@@ -180,7 +182,7 @@ for image_file in image_files[1::]:
     r = world_frame_rot_to_local(r, att)
     # ------------------
     frame_gray = cv.cvtColor(frame, cv.COLOR_BGR2GRAY)
-
+    print(v)
     # Refresh points if needed
     if p0 is None or len(p0) < 20:
         p0 = cv.goodFeaturesToTrack(frame_gray, mask=None, **feature_params)

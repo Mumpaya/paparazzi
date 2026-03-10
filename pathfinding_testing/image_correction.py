@@ -111,3 +111,6 @@ def load_image(path):
         img = cv2.rotate(img, cv2.ROTATE_90_COUNTERCLOCKWISE)
         img = undistort_image(img)
     return img
+
+def get_img_time_from_filename(filename):
+    return float(os.path.basename(filename).replace(".jpg", "")) / 1000000.0
