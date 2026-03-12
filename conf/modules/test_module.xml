@@ -2,11 +2,12 @@
 <module name="test_module" dir="_test_module" task="default">
   <doc>
     <description>
-      Edge-based floor avoider: uses OpenCV Canny edge detection on the bottom
-      camera to detect non-floor areas (walls, nets, poles).  The smooth floor
-      has few edges; obstacles produce many.  When edge density exceeds a
-      threshold the drone turns away from the side with more edges.
-      Runs in GUIDED mode.
+      Floor/obstacle avoider fusing green-carpet segmentation, edge detection,
+      and Hough line features.  Runs on the bottom camera in GUIDED mode.
+      The smooth green floor is segmented via HSV + CIELAB colour distance;
+      non-green areas, edge density, and line lengths are scored per grid cell
+      to produce a normalised obstacle_score (0..1).  The drone backs up and
+      turns away from the obstacle centroid when the score exceeds the threshold.
     </description>
     <define name="EDGE_DETECTOR_CAMERA" value="bottom_camera" description="Camera device to use"/>
     <define name="EDGE_DETECTOR_FPS"    value="0"             description="Desired FPS (0 = camera rate)"/>
@@ -20,7 +21,21 @@
       <dl_settings name="EdgeAvoider">
         <dl_setting var="green_max_speed"    min="0.0" step="0.05" max="1.5" shortname="max_speed"/>
         <dl_setting var="green_heading_rate" min="0.1" step="0.05" max="2.0" shortname="heading_rate"/>
-        <dl_setting var="edge_threshold"     min="0.01" step="0.01" max="0.5" shortname="edge_thr"/>
+        <dl_setting var="edge_threshold"     min="10"  step="10"   max="500" shortname="edge_thr"/>
+      </dl_settings>
+      <dl_settings name="ObstacleDetector">
+        <dl_setting var="obs_score_threshold" min="0.0" step="0.05" max="1.0" shortname="obs_thr"/>
+        <dl_setting var="obs_ema_alpha"       min="0.05" step="0.05" max="1.0" shortname="ema_alpha"/>
+        <dl_setting var="obs_w_ng"            min="0.0" step="0.05" max="1.0" shortname="w_ng"/>
+        <dl_setting var="obs_w_ed"            min="0.0" step="0.05" max="1.0" shortname="w_ed"/>
+        <dl_setting var="obs_w_ll"            min="0.0" step="0.05" max="1.0" shortname="w_ll"/>
+        <dl_setting var="obs_hsv_h_lo"        min="0"   step="1"    max="180" shortname="h_lo"/>
+        <dl_setting var="obs_hsv_h_hi"        min="0"   step="1"    max="180" shortname="h_hi"/>
+        <dl_setting var="obs_hsv_s_lo"        min="0"   step="1"    max="255" shortname="s_lo"/>
+        <dl_setting var="obs_hsv_s_hi"        min="0"   step="1"    max="255" shortname="s_hi"/>
+        <dl_setting var="obs_hsv_v_lo"        min="0"   step="1"    max="255" shortname="v_lo"/>
+        <dl_setting var="obs_hsv_v_hi"        min="0"   step="1"    max="255" shortname="v_hi"/>
+        <dl_setting var="obs_lab_dist_thr"    min="5"   step="1"    max="150" shortname="lab_thr"/>
       </dl_settings>
     </dl_settings>
   </settings>
@@ -39,7 +54,7 @@
   <makefile target="ap">
     <file name="test_module.c"/>
     <file name="edge_detector.cpp"/>
-    <file_arch name="modules/computer_vision/opencv_image_functions.cpp"/>
+    <file name="opencv_image_functions.cpp"/>
     <flag name="CXXFLAGS" value="I$(PAPARAZZI_SRC)/sw/ext/opencv_bebop/install_arm/include/opencv4"/>
     <flag name="LDFLAGS" value="L$(PAPARAZZI_HOME)/sw/ext/opencv_bebop/install_arm/lib"/>
     <flag name="LDFLAGS" value="lopencv_world"/>
@@ -52,7 +67,7 @@
   <makefile target="nps">
     <file name="test_module.c"/>
     <file name="edge_detector.cpp"/>
-    <file_arch name="modules/computer_vision/opencv_image_functions.cpp"/>
+    <file name="opencv_image_functions.cpp"/>
     <flag name="CXXFLAGS" value="I/usr/include/opencv4"/>
     <flag name="LDFLAGS" value="lopencv_core"/>
     <flag name="LDFLAGS" value="lopencv_imgproc"/>

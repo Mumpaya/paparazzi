@@ -32,7 +32,21 @@
 // Tunable settings (exposed to GCS)
 extern float green_max_speed;       // forward speed [m/s]
 extern float green_heading_rate;    // turn rate [rad/s]
-extern float edge_threshold;        // edge fraction above which we avoid
+extern float edge_threshold;        // legacy edge threshold (px)
+
+// Obstacle detector tunable settings (exposed to GCS)
+extern float obs_score_threshold;   // obstacle score threshold [0..1]
+extern float obs_ema_alpha;         // EMA smoothing factor [0..1]
+extern float obs_w_ng;              // non-green weight
+extern float obs_w_ed;              // edge-density weight
+extern float obs_w_ll;              // line-length weight
+extern int   obs_hsv_h_lo;
+extern int   obs_hsv_h_hi;
+extern int   obs_hsv_s_lo;
+extern int   obs_hsv_s_hi;
+extern int   obs_hsv_v_lo;
+extern int   obs_hsv_v_hi;
+extern float obs_lab_dist_thr;      // CIELAB distance threshold
 
 extern void init_func(void);
 extern void periodic_func(void);
