@@ -120,7 +120,7 @@ def undistort_image(image):
     undistorted_img = cv2.remap(image, map1, map2, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT)
     return undistorted_img
 
-def load_bebop_image(path):
+def load_image(path):
     img = cv2.imread(path)
     if img is not None:
         img = cv2.rotate(img, cv2.ROTATE_90_COUNTERCLOCKWISE)
