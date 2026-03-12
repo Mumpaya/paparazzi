@@ -1,0 +1,29 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "AF_8_V2: Build + Run Visualiser",
+			"type": "shell",
+			"command": "make -f sw/airborne/modules/AF_8_V2/Makefile.test && ./sw/airborne/modules/AF_8_V2/test_visualiser sw/airborne/modules/AF_8_V2/Playground",
+			"isBackground": false,
+			"problemMatcher": [
+				"$gcc"
+			],
+			"group": "build"
+		},
+		{
+			"label": "AF_8_V2: Build + Run Visualiser",
+			"type": "shell",
+			"command": "make -f sw/airborne/modules/AF_8_V2/Makefile.test && ./sw/airborne/modules/AF_8_V2/test_visualiser sw/airborne/modules/AF_8_V2/Playground",
+			"isBackground": false,
+			"group": "build"
+		},
+		{
+			"label": "AF_8_V2: Build + Run Visualiser",
+			"type": "shell",
+			"command": "make -f sw/airborne/modules/AF_8_V2/Makefile.test && ./sw/airborne/modules/AF_8_V2/test_visualiser sw/airborne/modules/AF_8_V2/Playground",
+			"isBackground": false,
+			"group": "build"
+		}
+	]
+}
