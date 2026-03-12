@@ -5,7 +5,7 @@ import re
 
 from ground_edge_detector import GroundEdgeDetector
 
-DATASET_PATH = "/home/lapoveca/paparazzi/Bottom_cam_try/20260306-113610"
+DATASET_PATH = "/home/ruben/Downloads/own_datasets/Bottom_cam_try/20260306-113610"
 def get_image_list(folder_path: str) -> list[str]:
     """Return all images in folder, sorted by numeric filename."""
     extensions = ("*.jpg", "*.png", "*.jpeg", "*.bmp")
@@ -65,7 +65,7 @@ def main():
 
         cv2.imshow("Green Edge Detector", overlay)
 
-        key = cv2.waitKey(1 if not paused else 0) & 0xFF
+        key = cv2.waitKey(10 if not paused else 0) & 0xFF
 
         if key == ord('q') or key == 27:
             break

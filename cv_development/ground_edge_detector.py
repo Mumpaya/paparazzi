@@ -427,6 +427,8 @@ from collections import deque
 @dataclass
 class GroundEdgeResult:
     mask: np.ndarray
+    mask_blue: np.ndarray
+    mask_black: np.ndarray
     edge: np.ndarray
     contours: list = field(default_factory=list)
     lines: list = field(default_factory=list)
@@ -454,6 +456,10 @@ class GroundEdgeDetector:
         green_frac_thresh: float = 0.3,
         hue_var_thresh: float = 15.0,
         oscillation_thresh: float = 0.25,
+        blue_hsv_lower: tuple = (91, 12, 36),
+        blue_hsv_upper: tuple = (164, 238, 224),
+        black_hsv_lower: tuple = (95, 0, 0),
+        black_hsv_upper: tuple = (200, 114, 172),
     ):
         self.hsv_lower          = np.array(hsv_lower)
         self.hsv_upper          = np.array(hsv_upper)
@@ -472,6 +478,10 @@ class GroundEdgeDetector:
         self.green_frac_thresh  = green_frac_thresh
         self.hue_var_thresh     = hue_var_thresh
         self.oscillation_thresh = oscillation_thresh
+        self.blue_hsv_lower     = np.array(blue_hsv_lower)
+        self.blue_hsv_upper     = np.array(blue_hsv_upper)
+        self.black_hsv_lower    = np.array(black_hsv_lower)
+        self.black_hsv_upper    = np.array(black_hsv_upper)
 
         self._history = deque(maxlen=history_len)
 
@@ -572,12 +582,23 @@ class GroundEdgeDetector:
         diffs = [abs(dominant[i+1] - dominant[i]) for i in range(len(dominant) - 1)]
         return float(np.mean(diffs))
 
-    def _is_mat_edge(self, p1, p2, mask, hsv):
+    def _is_mat_edge(self, p1, p2, mask, hsv, bad_mask):
         left_frac, right_frac, left_std, right_std = self._sample_sides(p1, p2, mask, hsv)
 
+
+        left_frac_bad, right_frac_bad, _, _ = self._sample_sides(p1, p2, bad_mask, hsv)
+        left_green = left_frac > self.green_frac_thresh
+        right_green = right_frac > self.green_frac_thresh
+        left_bad  = left_frac_bad > self.green_frac_thresh
+        right_bad = right_frac_bad > self.green_frac_thresh
         # Check 1: green on both sides → mat interior line
-        if left_frac > self.green_frac_thresh and right_frac > self.green_frac_thresh:
+        if left_green and right_green:
             return "both-green"
+        if left_green and not right_bad:
+            return "not-bad-R"
+        if right_green and not left_bad:
+            return "not-bad-L"
+
 
         # Check 2: high hue variance on green side → printed mat pattern
         if left_frac > self.green_frac_thresh and left_std > self.hue_var_thresh:
@@ -589,6 +610,8 @@ class GroundEdgeDetector:
         osc = self._green_side_oscillates(p1, p2, mask)
         if osc > self.oscillation_thresh:
             return f"oscillating({osc:.2f})"
+
+
 
         return None
 
@@ -620,6 +643,20 @@ class GroundEdgeDetector:
         mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
         mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN,
                                 cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7)))
+
+        kernel = cv2.getStructuringElement(
+            cv2.MORPH_ELLIPSE, (self.morph_ksize*2, self.morph_ksize*2))
+        mask_blue = cv2.inRange(hsv, self.blue_hsv_lower, self.blue_hsv_upper)
+        mask_black = cv2.inRange(hsv, self.black_hsv_lower, self.black_hsv_upper)
+        mask_blue = cv2.morphologyEx(mask_blue, cv2.MORPH_CLOSE, kernel)
+        mask_black = cv2.morphologyEx(mask_black, cv2.MORPH_CLOSE, kernel)
+        mask_blue = cv2.morphologyEx(mask_blue, cv2.MORPH_OPEN,
+                                cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7)))
+        mask_black = cv2.morphologyEx(mask_black, cv2.MORPH_OPEN,
+                                cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7)))
+
+        bad_mask = cv2.bitwise_or(mask_blue, mask_black)
+        bad_mask = cv2.subtract(bad_mask, mask)
 
         contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         contours = [c for c in contours if cv2.contourArea(c) > self.min_area]
@@ -656,7 +693,7 @@ class GroundEdgeDetector:
                 continue
 
             ep1, ep2 = self._extend_line(p1, p2, w_img)
-            reason   = self._is_mat_edge(p1, p2, mask, hsv)
+            reason   = self._is_mat_edge(p1, p2, mask, hsv, bad_mask)
 
             if reason:
                 rejected_lines.append((ep1, ep2, reason))
@@ -668,7 +705,10 @@ class GroundEdgeDetector:
             cv2.line(edge, p1, p2, 255, 2)
 
         return GroundEdgeResult(
-            mask=mask, edge=edge,
+            mask=mask,
+            mask_blue=mask_blue,
+            mask_black=mask_black,
+            edge=edge,
             contours=contours,
             lines=[(p1, p2) for _, _, p1, p2 in frame_lines],
             confirmed_lines=confirmed_lines,
@@ -677,7 +717,12 @@ class GroundEdgeDetector:
 
     def draw(self, bgr: np.ndarray, result: GroundEdgeResult) -> np.ndarray:
         overlay = bgr.copy()
-        overlay[result.mask > 0] = [0, 200, 0]
+        big_mask = cv2.bitwise_or(result.mask_blue, result.mask_black)
+        big_mask = cv2.subtract(big_mask, result.mask)
+        # overlay[result.mask > 0] = [0, 200, 0]
+        # overlay[result.mask_blue > 0] = [200, 0, 0]
+        # overlay[result.mask_black > 0] = [200, 0, 0]
+        overlay[big_mask > 0] = [0, 0, 200]
         out = cv2.addWeighted(bgr, 0.5, overlay, 0.5, 0)
 
         # Thin cyan — raw Hough, not yet confirmed
