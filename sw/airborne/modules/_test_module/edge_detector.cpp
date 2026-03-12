@@ -115,20 +115,13 @@ c.hsv_s_hi = 255;
 c.hsv_v_lo = 5;
 c.hsv_v_hi = 255;
 
-/* LAB centroid */
-c.lab_L0 = 120.f;
-c.lab_a0 = 100.f;
-c.lab_b0 = 140.f;
-
-c.lab_dist_thr = 150.f;
-
 /* morphology */
 c.morph_ksize = 7;
 
 
   /* Grid: 3 columns × 3 rows covering front 2/3 */
   c.grid_cols = 3;
-  c.grid_rows = 3;
+  c.grid_rows = 2;
 
   /* Scoring weights */
   c.w_ng = 0.50f;
@@ -177,44 +170,12 @@ struct obstacle_result detect_obstacles(char *img, int width, int height,
   Mat hsv;
   cvtColor(bgr, hsv, cv::COLOR_BGR2HSV);
 
-  /* ── 2b. BGR → CIELAB; CLAHE on L channel ──────────────────────────── */
-  Mat lab;
-  cvtColor(bgr, lab, cv::COLOR_BGR2Lab);
-  {
-    vector<Mat> lab_ch;
-    split(lab, lab_ch);
-    Ptr<CLAHE> clahe = createCLAHE(2.0, Size(8, 8));
-    clahe->apply(lab_ch[0], lab_ch[0]);
-    merge(lab_ch, lab);
-  }
-
-  /* ── 3. Green mask: HSV in-range AND LAB distance ──────────────────── */
-  Mat hsv_mask;
+  /* ── 3. Green mask: HSV in-range ───────────────────────────────────── */
+  Mat green_mask;
   inRange(hsv,
           Scalar(cfg.hsv_h_lo, cfg.hsv_s_lo, cfg.hsv_v_lo),
           Scalar(cfg.hsv_h_hi, cfg.hsv_s_hi, cfg.hsv_v_hi),
-          hsv_mask);
-
-  /* LAB distance mask */
-  Mat lab_mask(height, width, CV_8UC1);
-  {
-    const float L0 = cfg.lab_L0, a0 = cfg.lab_a0, b0 = cfg.lab_b0;
-    const float thr2 = cfg.lab_dist_thr * cfg.lab_dist_thr;
-    for (int r = 0; r < height; r++) {
-      const uchar *plab = lab.ptr<uchar>(r);
-      uchar *pmask = lab_mask.ptr<uchar>(r);
-      for (int c = 0; c < width; c++) {
-        float dL = (float)plab[3 * c + 0] - L0;
-        float da = (float)plab[3 * c + 1] - a0;
-        float db = (float)plab[3 * c + 2] - b0;
-        pmask[c] = (dL * dL + da * da + db * db < thr2) ? 255 : 0;
-      }
-    }
-  }
-
-  /* Combine */
-  Mat green_mask;
-  green_mask = hsv_mask;
+          green_mask);
 
   /* Morphology: open then close */
   Mat kern = getStructuringElement(MORPH_ELLIPSE,

@@ -46,8 +46,6 @@ extern int   obs_hsv_s_lo;
 extern int   obs_hsv_s_hi;
 extern int   obs_hsv_v_lo;
 extern int   obs_hsv_v_hi;
-extern float obs_lab_dist_thr;      // CIELAB distance threshold
-
 extern void init_func(void);
 extern void periodic_func(void);
 extern void orange_avoider_guided_retreat(void);

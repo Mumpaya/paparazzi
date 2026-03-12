@@ -84,8 +84,6 @@ int   obs_hsv_s_lo        = 40;
 int   obs_hsv_s_hi        = 255;
 int   obs_hsv_v_lo        = 30;
 int   obs_hsv_v_hi        = 255;
-float obs_lab_dist_thr    = 45.f;
-
 // ── State machine ─────────────────────────────────────────────────────────────
 enum edge_state_t {
   EDGE_SAFE,
@@ -125,7 +123,6 @@ static struct ObstacleConfig build_obstacle_cfg(void)
   cfg.hsv_s_hi       = obs_hsv_s_hi;
   cfg.hsv_v_lo       = obs_hsv_v_lo;
   cfg.hsv_v_hi       = obs_hsv_v_hi;
-  cfg.lab_dist_thr   = obs_lab_dist_thr;
   cfg.w_ng           = obs_w_ng;
   cfg.w_ed           = obs_w_ed;
   cfg.w_ll           = obs_w_ll;

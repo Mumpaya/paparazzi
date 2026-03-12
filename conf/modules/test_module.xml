@@ -35,7 +35,6 @@
         <dl_setting var="obs_hsv_s_hi"        min="0"   step="1"    max="255" shortname="s_hi"/>
         <dl_setting var="obs_hsv_v_lo"        min="0"   step="1"    max="255" shortname="v_lo"/>
         <dl_setting var="obs_hsv_v_hi"        min="0"   step="1"    max="255" shortname="v_hi"/>
-        <dl_setting var="obs_lab_dist_thr"    min="5"   step="1"    max="150" shortname="lab_thr"/>
       </dl_settings>
     </dl_settings>
   </settings>

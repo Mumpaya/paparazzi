@@ -33,10 +33,6 @@ struct ObstacleConfig {
   int hsv_s_lo, hsv_s_hi;
   int hsv_v_lo, hsv_v_hi;
 
-  /* CIELAB green centroid and distance threshold */
-  float lab_L0, lab_a0, lab_b0;
-  float lab_dist_thr;
-
   /* Grid layout (cols × rows in the front half) */
   int grid_cols, grid_rows;
 
