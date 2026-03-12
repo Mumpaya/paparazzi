@@ -1,0 +1,33 @@
+# Makefile for AF_8_V2 standalone CV pipeline test
+# Run from the paparazzi root:  make -f sw/airborne/modules/AF_8_V2/Makefile
+
+MODULE_DIR := sw/airborne/modules/AF_8_V2
+
+CXX      := g++
+CXXFLAGS := -std=c++17 -O2 -Wall \
+            -I$(MODULE_DIR) \
+            $(shell pkg-config --cflags opencv4)
+LDFLAGS  := $(shell pkg-config --libs opencv4)
+
+SRCS := \
+    $(MODULE_DIR)/test_visualiser.cpp \
+    $(MODULE_DIR)/ground_edge_node.cpp \
+    $(MODULE_DIR)/obstacle_detector_node.cpp \
+    $(MODULE_DIR)/gate_detector_node.cpp \
+    $(MODULE_DIR)/controller.cpp
+
+TARGET := $(MODULE_DIR)/test_visualiser
+
+.PHONY: all run clean
+
+all: $(TARGET)
+
+$(TARGET): $(SRCS)
+	$(CXX) $(CXXFLAGS) $^ -o $@ $(LDFLAGS)
+	@echo "Build OK → $(TARGET)"
+
+run: $(TARGET)
+	./$(TARGET) $(MODULE_DIR)/Playground
+
+clean:
+	rm -f $(TARGET)
