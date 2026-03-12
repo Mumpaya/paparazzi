@@ -1,0 +1,15 @@
+<!DOCTYPE module SYSTEM "module.dtd">
+<module name="gate_detector" dir="AF_8_V1">
+  <doc><description>Gate Detection in C++</description></doc>
+  <dep>
+    <depends>video_thread</depends>
+  </dep>
+  <header><file name="gate_detector.h"/></header>
+  <init fun="gate_detector_init()"/>
+  <periodic fun="gate_detector_periodic()" freq="30"/>
+  <makefile target="ap|nps">
+    <file name="gate_detector.cpp"/>
+    <raw>$(TARGET).CXXFLAGS += -I/usr/include/opencv4</raw>
+    <raw>$(TARGET).LDFLAGS  += -lopencv_core -lopencv_imgproc -lopencv_calib3d</raw>
+  </makefile>
+</module>

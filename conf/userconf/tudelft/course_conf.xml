@@ -21,4 +21,26 @@
    settings_modules="modules/ahrs_int_cmpl_quat.xml modules/bebop_cam.xml modules/cv_detect_color_object.xml modules/gps.xml modules/guidance_rotorcraft.xml modules/imu_common.xml modules/ins_extended.xml modules/nav_basic_rotorcraft.xml modules/orange_avoider_guided.xml modules/stabilization_indi_simple.xml modules/video_capture.xml modules/video_rtp_stream.xml"
    gui_color="white"
   />
+  <aircraft
+   name="bebop_our_avoider"
+   ac_id="44"
+   airframe="airframes/tudelft/bebop_our_avoider.xml"
+   radio="radios/dummy.xml"
+   telemetry="telemetry/default_rotorcraft.xml"
+   flight_plan="flight_plans/tudelft/course_orangeavoid_cyberzoo_guided.xml"
+   settings="settings/rotorcraft_basic.xml"
+   settings_modules="modules/ahrs_float_mlkf.xml modules/ahrs_int_cmpl_quat.xml modules/avoider.xml modules/bebop_cam.xml modules/electrical.xml modules/gps.xml modules/guidance_pid_rotorcraft.xml modules/guidance_rotorcraft.xml modules/imu_common.xml modules/ins_extended.xml modules/nav_rotorcraft.xml modules/stabilization_indi_simple.xml modules/video_rtp_stream.xml"
+   gui_color="cyan"
+  />
+  <aircraft
+   name="bebop_AF_8_V1"
+   ac_id="45"
+   airframe="airframes/tudelft/bebop_AF_8_V1.xml"
+   radio="radios/dummy.xml"
+   telemetry="telemetry/default_rotorcraft.xml"
+   flight_plan="flight_plans/tudelft/course_orangeavoid_cyberzoo_guided.xml"
+   settings="settings/rotorcraft_basic.xml"
+   settings_modules="modules/ahrs_float_mlkf.xml modules/ahrs_int_cmpl_quat.xml modules/bebop_cam.xml modules/controller.xml modules/gate_detector.xml modules/pole_detector_2.xml modules/electrical.xml modules/gps.xml modules/guidance_pid_rotorcraft.xml modules/guidance_rotorcraft.xml modules/imu_common.xml modules/ins_extended.xml modules/nav_rotorcraft.xml modules/stabilization_indi_simple.xml modules/video_rtp_stream.xml"
+   gui_color="orange"
+  />
 </conf>
