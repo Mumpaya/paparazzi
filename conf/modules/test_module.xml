@@ -4,7 +4,7 @@
     <description>
       Floor/obstacle avoider fusing green-carpet segmentation, edge detection,
       and Hough line features.  Runs on the bottom camera in GUIDED mode.
-      The smooth green floor is segmented via HSV + CIELAB colour distance;
+      The smooth green floor is segmented via HSV thresholding;
       non-green areas, edge density, and line lengths are scored per grid cell
       to produce a normalised obstacle_score (0..1).  The drone backs up and
       turns away from the obstacle centroid when the score exceeds the threshold.
@@ -54,9 +54,16 @@
     <file name="test_module.c"/>
     <file name="edge_detector.cpp"/>
     <file name="opencv_image_functions.cpp"/>
-    <flag name="CXXFLAGS" value="I$(PAPARAZZI_SRC)/sw/ext/opencv_bebop/install_arm/include/opencv4"/>
+    <flag name="CXXFLAGS" value="I$(PAPARAZZI_SRC)/sw/ext/opencv_bebop/install_arm/include"/>
     <flag name="LDFLAGS" value="L$(PAPARAZZI_HOME)/sw/ext/opencv_bebop/install_arm/lib"/>
     <flag name="LDFLAGS" value="lopencv_world"/>
+    <flag name="LDFLAGS" value="L$(PAPARAZZI_HOME)/sw/ext/opencv_bebop/install_arm/share/OpenCV/3rdparty/lib"/>
+    <flag name="LDFLAGS" value="llibprotobuf"/>
+    <flag name="LDFLAGS" value="llibjpeg-turbo"/>
+    <flag name="LDFLAGS" value="llibpng"/>
+    <flag name="LDFLAGS" value="llibtiff"/>
+    <flag name="LDFLAGS" value="lzlib"/>
+    <flag name="LDFLAGS" value="lquirc"/>
     <flag name="LDFLAGS" value="lpthread"/>
     <flag name="LDFLAGS" value="ldl"/>
     <flag name="LDFLAGS" value="lm"/>
