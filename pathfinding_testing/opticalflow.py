@@ -4,6 +4,7 @@ import pandas as pd
 import os
 import glob
 import scipy.spatial.transform as tf
+import image_correction as ic
 
 def point_grid(frame, step):
     height, widht = frame.shape[:2]
@@ -68,47 +69,17 @@ def world_frame_rot_to_local(eigen_rot_rate, eigen_att):
     local_rot = R.T @ eigen_rot_rate
     return local_rot
 
-K = np.array([
-    [324.5960989 ,   0.        , 265.97140012],
-     [0.         ,325.14620072 ,213.11778828],
-    [0.          , 0.          , 1.],
-    ])
-D = np.array([
-    [-0.05242866],
-     [0.05816831],
-     [-0.10717978],
-     [0.06408123],
-    ])
-map1, map2 = cv.fisheye.initUndistortRectifyMap(K, D, np.eye(3), K, (520, 240), cv.CV_16SC2)
-Knew = np.array([
-    [293.2446961 ,   0.     ,    269.86206627],
- [  0.     ,    293.74166585, 231.41389943],
- [  0.    ,       0.   ,        1.        ],
-])
-fx, fy = Knew[0, 0], Knew[1, 1]
-cx, cy = Knew[0, 2], Knew[1, 2]
-
 
 def normalize_pixel_coords(p):
-    x = (p[0] - cx) / fx
-    y = (p[1] - cy) / fy
+    x = (p[0] - ic.cx) / ic.fx
+    y = (p[1] - ic.cy) / ic.fy
     return np.array([x, y])
 
 def normalize_pixel_flow(u):
-    u_x = u[0] / fx
-    u_y = u[1] / fy
+    u_x = u[0] / ic.fx
+    u_y = u[1] / ic.fy
     return np.array([u_x, u_y])
 
-def undistort_image(image):
-    undistorted_img = cv.remap(image, map1, map2, interpolation=cv.INTER_LINEAR, borderMode=cv.BORDER_CONSTANT)
-    return undistorted_img
-
-def load_image(path):
-    img = cv.imread(path)
-    if img is not None:
-        img = cv.rotate(img, cv.ROTATE_90_COUNTERCLOCKWISE)
-        img = undistort_image(img)
-    return img
 
 def get_img_time_from_filename(filename):
     return float(os.path.basename(filename).replace(".jpg", "")) / 1000000.0
@@ -161,8 +132,8 @@ def draw_point_with_depth(frame, pt, z, fac=100):
 # 1. Setup Paths 20190121-142935
 # folder_path = r"C:\Users\super\Downloads\AE4317_2019_datasets\AE4317_2019_datasets\cyberzoo_poles_panels_mats\20190121-142935"
 # csv_path = r"C:\Users\super\Downloads\AE4317_2019_datasets\AE4317_2019_datasets\cyberzoo_poles_panels_mats\20190121-142943.csv"
-folder_path = r"C:\Users\super\Downloads\AE4317_2019_datasets\AE4317_2019_datasets\sim_poles_panels_mats\20190121-161931"
-csv_path = r"C:\Users\super\Downloads\AE4317_2019_datasets\AE4317_2019_datasets\sim_poles_panels_mats\20190121-161955.csv"
+# folder_path = r"C:\Users\super\Downloads\AE4317_2019_datasets\AE4317_2019_datasets\sim_poles_panels_mats\20190121-161931"
+# csv_path = r"C:\Users\super\Downloads\AE4317_2019_datasets\AE4317_2019_datasets\sim_poles_panels_mats\20190121-161955.csv"
 
 # folder_path = r"C:\Users\super\Downloads\own_datasets-20260306T115639Z-3-001\own_datasets\front_cam_gate\20260306-104712"
 # csv_path = r"C:\Users\super\Downloads\own_datasets-20260306T115639Z-3-001\own_datasets\front_cam_gate\20260306-105523.csv"
@@ -170,8 +141,10 @@ csv_path = r"C:\Users\super\Downloads\AE4317_2019_datasets\AE4317_2019_datasets\
 # csv_path = r"C:\Users\super\Downloads\own_datasets-20260306T115639Z-3-001\own_datasets\Front_cam_try2\20260306-114725.csv"
 
 # ruben laptop
-# folder_path = r"/home/ruben/Downloads/AE4317_2019_datasets/cyberzoo_poles_panels_mats/20190121-142935"
-# csv_path = r"/home/ruben/Downloads/AE4317_2019_datasets/cyberzoo_poles_panels_mats/20190121-142943.csv"
+folder_path = r"/home/ruben/Downloads/AE4317_2019_datasets/cyberzoo_poles_panels_mats/20190121-142935"
+csv_path = r"/home/ruben/Downloads/AE4317_2019_datasets/cyberzoo_poles_panels_mats/20190121-142943.csv"
+# folder_path = r"/home/ruben/Downloads/own_datasets/front_cam_gate/20260306-104712"
+# csv_path = r"/home/ruben/Downloads/own_datasets/front_cam_gate/20260306-105523.csv"
 
 # 2. Load and Prepare Data
 df = pd.read_csv(csv_path)
@@ -182,7 +155,7 @@ feature_params = dict(maxCorners=50, qualityLevel=0.000001, minDistance=20, bloc
 lk_params = dict(winSize=(15, 15), maxLevel=2, criteria=(cv.TERM_CRITERIA_EPS | cv.TERM_CRITERIA_COUNT, 10, 0.03))
 
 # 3. Initialize
-old_frame = load_image(image_files[0])
+old_frame = ic.load_image(image_files[0])
 old_gray = cv.cvtColor(old_frame, cv.COLOR_BGR2GRAY)
 p0 = cv.goodFeaturesToTrack(old_gray, mask=None, **feature_params)
 last_t = get_img_time_from_filename(image_files[0])
@@ -190,7 +163,7 @@ last_t = get_img_time_from_filename(image_files[0])
 w, h = old_gray.shape[::-1]
 
 for image_file in image_files[1::]:
-    frame = load_image(image_file)
+    frame = ic.load_image(image_file)
     if frame is None: break
     
     # --- SYNC LOGIC ---
@@ -198,7 +171,6 @@ for image_file in image_files[1::]:
     img_time = get_img_time_from_filename(image_file)
     dt = img_time - last_t
     last_t = img_time
-    print(dt)
     
     # Find the closest row in CSV
     idx = (df['time'] - img_time).abs().idxmin()
@@ -209,9 +181,8 @@ for image_file in image_files[1::]:
     v = world_frame_vel_to_local(v, att)
     r = world_frame_rot_to_local(r, att)
     # ------------------
-    print(v)
     frame_gray = cv.cvtColor(frame, cv.COLOR_BGR2GRAY)
-
+    print(v)
     # Refresh points if needed
     if p0 is None or len(p0) < 20:
         p0 = cv.goodFeaturesToTrack(frame_gray, mask=None, **feature_params)

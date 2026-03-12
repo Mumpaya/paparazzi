@@ -1,0 +1,36 @@
+<!DOCTYPE module SYSTEM "module.dtd">
+
+<module name="pole_detector" dir="our_orange_avoider">
+  <doc>
+    <description>
+      Detects orange poles in the front camera image using YUV color thresholding.
+      Publishes the pole centroid x-position and pixel count via ABI VISUAL_DETECTION.
+      Intended to be used with the avoider module.
+    </description>
+    <define name="POLE_DETECTOR_CAMERA"    value="front_camera" description="Camera device to use"/>
+    <define name="POLE_DETECTOR_FPS"       value="0"            description="Desired FPS (0 = camera rate)"/>
+    <define name="POLE_DETECTOR_ABI_ID"    value="1"            description="ABI sender ID for VISUAL_DETECTION message"/>
+    <define name="POLE_Y_MIN"  value="41"  description="Min luma (Y) for orange"/>
+    <define name="POLE_Y_MAX"  value="183" description="Max luma (Y) for orange"/>
+    <define name="POLE_U_MIN"  value="53"  description="Min blue chroma (U/Cb) for orange"/>
+    <define name="POLE_U_MAX"  value="121" description="Max blue chroma (U/Cb) for orange"/>
+    <define name="POLE_V_MIN"  value="134" description="Min red chroma (V/Cr) for orange"/>
+    <define name="POLE_V_MAX"  value="249" description="Max red chroma (V/Cr) for orange"/>
+    <define name="POLE_MIN_PIXEL_COUNT" value="100" description="Min orange pixels to declare a detection"/>
+  </doc>
+
+  <dep>
+    <depends>video_thread</depends>
+  </dep>
+
+  <header>
+    <file name="pole_detector.h"/>
+  </header>
+
+  <init fun="pole_detector_init()"/>
+  <periodic fun="pole_detector_periodic()" freq="10"/>
+
+  <makefile target="ap|nps">
+    <file name="pole_detector.c"/>
+  </makefile>
+</module>
