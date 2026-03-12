@@ -25,7 +25,7 @@ def flow_to_bgr(flow):
     hsv = np.zeros((flow.shape[0], flow.shape[1], 3), dtype=np.uint8)
     hsv[..., 0] = ang * 180 / np.pi / 2
     hsv[..., 1] = 255
-    hsv[..., 2] = cv.normalize(mag, None, 0, 255, cv.NORM_MINMAX)
+    hsv[..., 2] = np.clip(mag / 10 *255, 0, 255).astype(np.uint8)
     bgr = cv.cvtColor(hsv, cv.COLOR_HSV2BGR)
     return bgr
 
@@ -99,8 +99,8 @@ for i in range(start+1, len(image_files), 1):
                 [(1 + y**2), -x*y, -x],
             ])
             ur = B @ (dr)
-            rot_flow[v, u] = ur
             ur *= np.array([ic.fx, ic.fy])
+            rot_flow[v, u] = ur
 
 
     bgr = flow_to_bgr(flow - rot_flow)
