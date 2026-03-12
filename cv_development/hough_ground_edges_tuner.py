@@ -5,7 +5,7 @@ import glob
 import re
 from collections import deque
 
-DATASET_PATH = "/home/lapoveca/paparazzi/Bottom_cam_try/20260306-113610"
+DATASET_PATH = "/home/ruben/Downloads/own_datasets/Bottom_cam_try/20260306-113610"
 
 def get_image_list(folder_path):
     extensions = ("*.jpg", "*.png", "*.jpeg", "*.bmp")

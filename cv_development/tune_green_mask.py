@@ -4,7 +4,7 @@ import os
 import glob
 import re
 
-DATASET_PATH = "/home/lapoveca/paparazzi/Bottom_cam_try/20260306-113610"
+DATASET_PATH = "/home/ruben/Downloads/own_datasets/Bottom_cam_try/20260306-113610"
 
 def get_image_list(folder_path):
     extensions = ("*.jpg", "*.png", "*.jpeg", "*.bmp")
@@ -33,8 +33,8 @@ def main():
 
     # Main window with trackbars for live HSV tuning
     cv2.namedWindow("HSV Tuner")
-    cv2.createTrackbar("H low",  "HSV Tuner",  18,  179, nothing)  # was 40
-    cv2.createTrackbar("H high", "HSV Tuner",  76,  179, nothing)  # was 85
+    cv2.createTrackbar("H low",  "HSV Tuner",  18,  255, nothing)  # was 40
+    cv2.createTrackbar("H high", "HSV Tuner",  76,  255, nothing)  # was 85
     cv2.createTrackbar("S low",  "HSV Tuner",  17,  255, nothing)  # was 15
     cv2.createTrackbar("S high", "HSV Tuner", 153,  255, nothing)  # was 255
     cv2.createTrackbar("V low",  "HSV Tuner", 124,  255, nothing)  # was 60
@@ -72,6 +72,7 @@ def main():
         mask = cv2.inRange(hsv,
                            np.array([h_low,  s_low,  v_low]),
                            np.array([h_high, s_high, v_high]))
+        mask = cv2.medianBlur(mask, 9)
 
         # Green tint overlay on masked pixels
         overlay = img_bgr.copy()
