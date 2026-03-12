@@ -94,12 +94,12 @@ D = np.array([
      [-0.10717978],
      [0.06408123],
     ])
-map1, map2 = cv2.fisheye.initUndistortRectifyMap(K, D, np.eye(3), K, size, cv2.CV_16SC2)
 Knew = np.array([
     [293.2446961 ,   0.     ,    269.86206627],
  [  0.     ,    293.74166585, 231.41389943],
  [  0.    ,       0.   ,        1.        ],
 ])
+map1, map2 = cv2.fisheye.initUndistortRectifyMap(K, D, np.eye(3), K, size, cv2.CV_16SC2)
 fx, fy = Knew[0, 0], Knew[1, 1]
 cx, cy = Knew[0, 2], Knew[1, 2]
 
