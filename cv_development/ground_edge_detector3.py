@@ -255,8 +255,11 @@ class GroundEdgeDetector:
         2. Create green mask
         3. create non-uniform mask
         4. create not green mask
-        5. clean up masks with morphology
+        5. clean up masks with morphology (not needed)
         6. combine masks (good = non-uniform OR green, bad = not-green AND NOT non-uniform)
+        7. compute goodness = fraction of good pixels
+        8. compute centroid of good pixels
+        send to control: goodness, centroid-centre, over_edge
         """
         h_img, w_img = bgr.shape[:2]
 
@@ -267,8 +270,8 @@ class GroundEdgeDetector:
         mask_non_uniform = self.mask_non_uniform(bgr)
         mask_not_green = cv2.inRange(hsv, self.hsv_lower_not_green, self.hsv_upper_not_green)
 
-        closekernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (11, 11))
-        openkernel  = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7))
+        # closekernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (11, 11))
+        # openkernel  = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7))
 
         # mask_green = cv2.morphologyEx(mask_green, cv2.MORPH_CLOSE, closekernel)
         # mask_green = cv2.morphologyEx(mask_green, cv2.MORPH_OPEN, openkernel)
@@ -312,8 +315,8 @@ class GroundEdgeDetector:
         overlay*=0
         # overlay[result.green_mask > 0, 1] += 255
         # overlay[result.not_uniform_mask > 0, 0] +=255
-        overlay[result.mask_bad > 0, 2] +=255
-        overlay[result.mask_good > 0, 1] +=255
+        # overlay[result.mask_bad > 0, 2] +=255
+        # overlay[result.mask_good > 0, 1] +=255
         out = cv2.addWeighted(bgr, 0.5, overlay, 0.5, 0)
         h_img, w_img = bgr.shape[:2]
         if result.centroid is not None:

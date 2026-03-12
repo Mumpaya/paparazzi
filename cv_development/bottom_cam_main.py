@@ -5,7 +5,7 @@ import re
 
 from ground_edge_detector3 import GroundEdgeDetector
 
-DATASET_PATH = r"C:\Users\super\Downloads\own_datasets-20260306T115639Z-3-001\own_datasets\Bottom_cam_try\20260306-113610"
+DATASET_PATH = '/home/ruben/Downloads/own_datasets/Bottom_cam_try/20260306-113610'
 def get_image_list(folder_path: str) -> list[str]:
     """Return all images in folder, sorted by numeric filename."""
     extensions = ("*.jpg", "*.png", "*.jpeg", "*.bmp")
