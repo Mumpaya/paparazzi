@@ -4,7 +4,7 @@ import os
 import glob
 import re
 
-DATASET_PATH = "/home/ruben/Downloads/own_datasets/Bottom_cam_try/20260306-113610"
+DATASET_PATH = r"C:\Users\super\Downloads\own_datasets-20260306T115639Z-3-001\own_datasets\Bottom_cam_try\20260306-113610"
 
 def get_image_list(folder_path):
     extensions = ("*.jpg", "*.png", "*.jpeg", "*.bmp")
@@ -68,11 +68,12 @@ def main():
         v_low  = cv2.getTrackbarPos("V low",  "HSV Tuner")
         v_high = cv2.getTrackbarPos("V high", "HSV Tuner")
 
-        hsv  = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2HSV)
+
+        blurred = cv2.GaussianBlur(img_bgr, (9,9), 0)
+        hsv  = cv2.cvtColor(blurred, cv2.COLOR_BGR2HSV)
         mask = cv2.inRange(hsv,
                            np.array([h_low,  s_low,  v_low]),
                            np.array([h_high, s_high, v_high]))
-        mask = cv2.medianBlur(mask, 9)
 
         # Green tint overlay on masked pixels
         overlay = img_bgr.copy()

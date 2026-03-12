@@ -427,7 +427,7 @@ from collections import deque
 @dataclass
 class GroundEdgeResult:
     mask: np.ndarray
-    mask_blue: np.ndarray
+    mask_bad: np.ndarray
     mask_black: np.ndarray
     edge: np.ndarray
     contours: list = field(default_factory=list)
@@ -439,13 +439,13 @@ class GroundEdgeResult:
 class GroundEdgeDetector:
     def __init__(
         self,
-        hsv_lower: tuple = (18, 17, 124),
-        hsv_upper: tuple = (76, 153, 255),
+        hsv_lower: tuple = (0, 15, 105),
+        hsv_upper: tuple = (66, 225, 255),
         hough_threshold: int = 54,
         hough_min_length: int = 80,
         hough_max_gap: int = 36,
         blur_ksize: int = 9,
-        morph_ksize: int = 5,
+        morph_ksize: int = 10,
         min_area: int = 500,
         history_len: int = 5,
         confirm_frames: int = 2,
@@ -644,7 +644,7 @@ class GroundEdgeDetector:
             cv2.line(img, pt0, pt1, color, 2)
 
 
-    def mask_non_uniform(self, bgr: np.ndarray, ksize: int = 15, thresh: float = 15.0) -> np.ndarray:
+    def mask_non_uniform(self, bgr: np.ndarray, ksize: int = 15, thresh: float = 18.0) -> np.ndarray:
         """
         Returns a binary mask where non-uniform (high-texture) regions are white.
 
@@ -664,9 +664,9 @@ class GroundEdgeDetector:
         mask = (local_std > thresh).astype(np.uint8) * 255
 
         # Clean up with morphology
-        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (11, 11))
-        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
-        mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
+        # kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (11, 11))
+        # mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
+        # mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
 
         return mask
 
@@ -677,15 +677,15 @@ class GroundEdgeDetector:
         hsv     = cv2.cvtColor(blurred, cv2.COLOR_BGR2HSV)
 
         mask = cv2.inRange(hsv, self.hsv_lower, self.hsv_upper)
+        non_uniform_mask = self.mask_non_uniform(bgr)
+        mask = cv2.bitwise_or(mask, non_uniform_mask)
         kernel = cv2.getStructuringElement(
             cv2.MORPH_ELLIPSE, (self.morph_ksize, self.morph_ksize))
         mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
         mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN,
                                 cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7)))
 
-        non_uniform_mask = self.mask_non_uniform(bgr)
-        mask = cv2.bitwise_or(mask, non_uniform_mask)
-
+        #
         kernel = cv2.getStructuringElement(
             cv2.MORPH_ELLIPSE, (self.morph_ksize*2, self.morph_ksize*2))
         mask_blue = cv2.inRange(hsv, self.blue_hsv_lower, self.blue_hsv_upper)
@@ -748,7 +748,7 @@ class GroundEdgeDetector:
 
         return GroundEdgeResult(
             mask=mask,
-            mask_blue=bad_mask,
+            mask_bad=bad_mask,
             mask_black=mask_black,
             edge=edge,
             contours=contours,
@@ -762,10 +762,10 @@ class GroundEdgeDetector:
     def draw(self, bgr: np.ndarray, result: GroundEdgeResult) -> np.ndarray:
         overlay = bgr.copy()
         uniform_mask = self.mask_non_uniform(bgr)
-        big_mask = cv2.bitwise_or(result.mask_blue, result.mask_black)
+        big_mask = cv2.bitwise_or(result.mask_bad, result.mask_black)
         big_mask = cv2.subtract(big_mask, result.mask)
         # overlay[result.mask > 0] = [0, 200, 0]
-        overlay[result.mask_blue > 0] = [0, 0, 200]
+        overlay[result.mask_bad > 0] = [0, 0, 200]
         # overlay[result.mask_black > 0] = [200, 0, 0]
         overlay[result.mask > 0] = [0, 200, 0]
         # overlay[big_mask > 0] = [0, 0, 200]

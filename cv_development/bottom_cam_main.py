@@ -3,9 +3,9 @@ import os
 import glob
 import re
 
-from ground_edge_detector import GroundEdgeDetector
+from ground_edge_detector3 import GroundEdgeDetector
 
-DATASET_PATH = "/home/ruben/Downloads/own_datasets/Bottom_cam_try/20260306-113610"
+DATASET_PATH = r"C:\Users\super\Downloads\own_datasets-20260306T115639Z-3-001\own_datasets\Bottom_cam_try\20260306-113610"
 def get_image_list(folder_path: str) -> list[str]:
     """Return all images in folder, sorted by numeric filename."""
     extensions = ("*.jpg", "*.png", "*.jpeg", "*.bmp")
@@ -41,23 +41,16 @@ def main():
         result  = detector.detect(img_bgr)
         overlay = detector.draw(img_bgr, result)
 
-        n_poles = len(result.contours)
-
         h, w    = overlay.shape[:2]
 
-        n_confirmed = len(result.confirmed_lines)
         
-        cv2.putText(overlay, f"Confirmed edges: {n_confirmed}", (10, 95),
+        cv2.putText(overlay, f"Goodness: {result.goodness}", (10, 95),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.6,
-                    (0, 255, 255) if n_confirmed > 0 else (100, 100, 100), 2)
+                    (0, 255, 255) if result.over_edge else (100, 100, 100), 2)
 
         cv2.putText(overlay, f"Frame: {idx}/{len(images)-1}",        # ← fixed
                     (10, 25), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1)
-        cv2.putText(overlay, f"File:  {fname}",
-                    (10, 48), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (200, 200, 200), 1)
-        cv2.putText(overlay, f"Regions: {n_poles}",
-            (10, 70), cv2.FONT_HERSHEY_SIMPLEX, 0.6,
-            (0, 255, 0) if n_poles == 0 else (0, 80, 255), 2)
+
 
         if paused:
             cv2.putText(overlay, "PAUSED", (w // 2 - 50, 30),
