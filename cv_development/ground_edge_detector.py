@@ -454,12 +454,14 @@ class GroundEdgeDetector:
         sample_dist: int = 20,
         n_samples: int = 20,
         green_frac_thresh: float = 0.3,
-        hue_var_thresh: float = 15.0,
+        hue_var_thresh: float = 10.0,
         oscillation_thresh: float = 0.25,
         blue_hsv_lower: tuple = (91, 12, 36),
         blue_hsv_upper: tuple = (164, 238, 224),
         black_hsv_lower: tuple = (95, 0, 0),
         black_hsv_upper: tuple = (200, 114, 172),
+        bad_frac_thresh: float = 0.3,
+        heu_var_thresh_bad: float = 40.0,
     ):
         self.hsv_lower          = np.array(hsv_lower)
         self.hsv_upper          = np.array(hsv_upper)
@@ -482,6 +484,8 @@ class GroundEdgeDetector:
         self.blue_hsv_upper     = np.array(blue_hsv_upper)
         self.black_hsv_lower    = np.array(black_hsv_lower)
         self.black_hsv_upper    = np.array(black_hsv_upper)
+        self.bad_frac_thresh     = bad_frac_thresh
+        self.hue_var_thresh_bad = heu_var_thresh_bad
 
         self._history = deque(maxlen=history_len)
 
@@ -586,11 +590,11 @@ class GroundEdgeDetector:
         left_frac, right_frac, left_std, right_std = self._sample_sides(p1, p2, mask, hsv)
 
 
-        left_frac_bad, right_frac_bad, _, _ = self._sample_sides(p1, p2, bad_mask, hsv)
+        left_frac_bad, right_frac_bad, left_std_bad, right_std_bad = self._sample_sides(p1, p2, bad_mask, hsv)
         left_green = left_frac > self.green_frac_thresh
         right_green = right_frac > self.green_frac_thresh
-        left_bad  = left_frac_bad > self.green_frac_thresh
-        right_bad = right_frac_bad > self.green_frac_thresh
+        left_bad  = left_frac_bad > self.bad_frac_thresh
+        right_bad = right_frac_bad > self.bad_frac_thresh
         # Check 1: green on both sides → mat interior line
         if left_green and right_green:
             return "both-green"
@@ -601,15 +605,23 @@ class GroundEdgeDetector:
 
 
         # Check 2: high hue variance on green side → printed mat pattern
-        if left_frac > self.green_frac_thresh and left_std > self.hue_var_thresh:
-            return f"high-var-L({left_std:.0f})"
-        if right_frac > self.green_frac_thresh and right_std > self.hue_var_thresh:
-            return f"high-var-R({right_std:.0f})"
-
-        # Check 3: green side oscillates along line → mat stripes
-        osc = self._green_side_oscillates(p1, p2, mask)
-        if osc > self.oscillation_thresh:
-            return f"oscillating({osc:.2f})"
+        # if left_green and left_std > self.hue_var_thresh:
+        #     return f"high-var-L({left_std:.0f})"
+        # if right_green and right_std > self.hue_var_thresh:
+        #     return f"high-var-R({right_std:.0f})"
+        # if left_bad and left_std_bad > self.hue_var_thresh_bad:
+        #     return f"high-var-bad-L({left_std_bad:.0f})"
+        # if right_bad and right_std_bad > self.hue_var_thresh_bad:
+        #     return f"high-var-bad-R({right_std_bad:.0f})"
+        #
+        # # Check 3: green side oscillates along line → mat stripes
+        # osc = self._green_side_oscillates(p1, p2, mask)
+        # if osc > self.oscillation_thresh:
+        #     return f"oscillating({osc:.2f})"
+        # # bad side oscillation check
+        # osc_bad = self._green_side_oscillates(p1, p2, bad_mask)
+        # if osc_bad > self.oscillation_thresh:
+        #     return f"oscillating-bad({osc_bad:.2f})"
 
 
 
@@ -631,6 +643,33 @@ class GroundEdgeDetector:
             pt1 = (int(x1 + t1 * dx), int(y1 + t1 * dy))
             cv2.line(img, pt0, pt1, color, 2)
 
+
+    def mask_non_uniform(self, bgr: np.ndarray, ksize: int = 15, thresh: float = 15.0) -> np.ndarray:
+        """
+        Returns a binary mask where non-uniform (high-texture) regions are white.
+
+        1. Convert to grayscale.
+        2. Compute local mean and local mean-of-squares via box filter.
+        3. Local std dev = sqrt(mean_of_squares - mean^2).
+        4. Threshold: high std dev → non-uniform.
+        """
+        gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY).astype(np.float32)
+
+        # Local mean and local variance via box filter
+        local_mean = cv2.blur(gray, (ksize, ksize))
+        local_sq_mean = cv2.blur(gray * gray, (ksize, ksize))
+        local_std = np.sqrt(np.maximum(local_sq_mean - local_mean ** 2, 0))
+
+        # Threshold: high std = non-uniform
+        mask = (local_std > thresh).astype(np.uint8) * 255
+
+        # Clean up with morphology
+        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (11, 11))
+        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
+        mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
+
+        return mask
+
     def detect(self, bgr: np.ndarray) -> GroundEdgeResult:
         h_img, w_img = bgr.shape[:2]
 
@@ -643,6 +682,9 @@ class GroundEdgeDetector:
         mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
         mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN,
                                 cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7)))
+
+        non_uniform_mask = self.mask_non_uniform(bgr)
+        mask = cv2.bitwise_or(mask, non_uniform_mask)
 
         kernel = cv2.getStructuringElement(
             cv2.MORPH_ELLIPSE, (self.morph_ksize*2, self.morph_ksize*2))
@@ -706,7 +748,7 @@ class GroundEdgeDetector:
 
         return GroundEdgeResult(
             mask=mask,
-            mask_blue=mask_blue,
+            mask_blue=bad_mask,
             mask_black=mask_black,
             edge=edge,
             contours=contours,
@@ -715,14 +757,19 @@ class GroundEdgeDetector:
             rejected_lines=rejected_lines,
         )
 
+
+
     def draw(self, bgr: np.ndarray, result: GroundEdgeResult) -> np.ndarray:
         overlay = bgr.copy()
+        uniform_mask = self.mask_non_uniform(bgr)
         big_mask = cv2.bitwise_or(result.mask_blue, result.mask_black)
         big_mask = cv2.subtract(big_mask, result.mask)
         # overlay[result.mask > 0] = [0, 200, 0]
-        # overlay[result.mask_blue > 0] = [200, 0, 0]
+        overlay[result.mask_blue > 0] = [0, 0, 200]
         # overlay[result.mask_black > 0] = [200, 0, 0]
-        overlay[big_mask > 0] = [0, 0, 200]
+        overlay[result.mask > 0] = [0, 200, 0]
+        # overlay[big_mask > 0] = [0, 0, 200]
+        # overlay[uniform_mask > 0] = [0, 200, 200]
         out = cv2.addWeighted(bgr, 0.5, overlay, 0.5, 0)
 
         # Thin cyan — raw Hough, not yet confirmed
