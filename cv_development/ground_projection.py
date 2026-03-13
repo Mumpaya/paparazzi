@@ -12,7 +12,23 @@ import cv2
 import numpy as np
 import sys
 sys.path.append("/home/roan2003/paparazzi")
-from pathfinding_testing.image_correction import K, D, Knew
+
+K = np.array([
+    [324.5960989 ,   0.        , 265.97140012],
+     [0.         ,325.14620072 ,213.11778828],
+    [0.          , 0.          , 1.],
+    ])
+D = np.array([
+    [-0.05242866],
+     [0.05816831],
+     [-0.10717978],
+     [0.06408123],
+    ])
+Knew = np.array([
+    [293.2446961 ,   0.     ,    269.86206627],
+ [  0.     ,    293.74166585, 231.41389943],
+ [  0.    ,       0.   ,        1.        ],
+])
 
 
 def undistort_bbox_box(box, K, D, Knew):
@@ -33,7 +49,7 @@ def undistort_bbox_box(box, K, D, Knew):
 
     return (x_min, y_min, x_max - x_min, y_max - y_min), undistorted
 
-def OrangeBox_to_distance(x_min,w,Knew, real_width=0.35):
+def OrangeBox_to_distance(x_min,w,Knew, real_width=0.34):
     # Assume the box is on the ground and we know its real-world width
     Orange_FoV = w/(2*(Knew[0,2]))*np.pi # width in normalized image coords
     distance = real_width/(2*np.sin(Orange_FoV/2))*np.sin(np.pi/2 - Orange_FoV/2) # distance from camera to box
