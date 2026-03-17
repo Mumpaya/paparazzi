@@ -62,7 +62,7 @@ extern "C" {
 
 /** Number of frames after gate disappears before leaving GATELOCK mode
  *  (the UAV is assumed to be flying through the gate during this coast). */
-#define GATELOCK_COAST_FRAMES   30
+#define GATELOCK_COAST_FRAMES   20
 
 /** Gate centre must lie inside a flyzone of at least this width (px)
  *  for the gate to be used as the heading target in NORMAL mode.
@@ -71,6 +71,14 @@ extern "C" {
 
 /** The minimum gate distance (m) before reducing approach velocity. */
 #define GATE_SLOW_DIST_M        1.5f
+
+/* ── smoothing (rolling window) ─────────────────────────────────
+ * Apply a small moving-average window to the controller outputs to
+ * reduce frame-to-frame jitter before they are published.
+ */
+#ifndef CTRL_SMOOTH_WINDOW
+#define CTRL_SMOOTH_WINDOW 10
+#endif
 
 /* ── controller state ───────────────────────────────────────────── */
 
@@ -115,6 +123,11 @@ typedef struct {
     CtrlMode mode;
     int      good_streak;      /**< consecutive GOOD+unobstructed frames */
     int      coast_frames;     /**< frames remaining in GATELOCK coast   */
+    /* history buffers for simple moving-average smoothing */
+    float    yaw_hist[CTRL_SMOOTH_WINDOW];
+    float    vel_hist[CTRL_SMOOTH_WINDOW];
+    int      hist_idx;        /* next index to overwrite (circular) */
+    int      hist_len;        /* number of valid entries (<= window) */
 } ControllerState;
 
 /* ── public API ─────────────────────────────────────────────────── */

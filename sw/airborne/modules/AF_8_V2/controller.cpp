@@ -104,6 +104,10 @@ void controller_init(ControllerState *cs)
     cs->mode         = CTRL_MODE_NORMAL;
     cs->good_streak  = 0;
     cs->coast_frames = 0;
+    /* initialize smoothing buffers */
+    cs->hist_idx = 0;
+    cs->hist_len = 0;
+    for (int i = 0; i < CTRL_SMOOTH_WINDOW; i++) { cs->yaw_hist[i] = 0.0f; cs->vel_hist[i] = 0.0f; }
 }
 
 ControlOutput controller_update(ControllerState *cs,
@@ -208,6 +212,21 @@ ControlOutput controller_update(ControllerState *cs,
             out.forward_vel     = V_GATE;   /* keep speed up through gate */
         }
 
+        /* smooth & return */
+        {
+            /* insert into circular history */
+            cs->yaw_hist[cs->hist_idx] = out.delta_yaw_rad;
+            cs->vel_hist[cs->hist_idx] = out.forward_vel;
+            cs->hist_idx = (cs->hist_idx + 1) % CTRL_SMOOTH_WINDOW;
+            if (cs->hist_len < CTRL_SMOOTH_WINDOW) cs->hist_len++;
+
+            /* compute averages over valid entries */
+            float sy = 0.0f, sv = 0.0f;
+            for (int i = 0; i < cs->hist_len; i++) { sy += cs->yaw_hist[i]; sv += cs->vel_hist[i]; }
+            out.delta_yaw_rad = sy / (float)cs->hist_len;
+            out.forward_vel   = sv / (float)cs->hist_len;
+        }
+
         return out;
     }
 
@@ -242,6 +261,17 @@ ControlOutput controller_update(ControllerState *cs,
         out.heading_error_pct = error_pct;
         out.delta_yaw_rad     = delta_yaw;
         out.forward_vel       = V_STD;
+        /* smooth & return */
+        {
+            cs->yaw_hist[cs->hist_idx] = out.delta_yaw_rad;
+            cs->vel_hist[cs->hist_idx] = out.forward_vel;
+            cs->hist_idx = (cs->hist_idx + 1) % CTRL_SMOOTH_WINDOW;
+            if (cs->hist_len < CTRL_SMOOTH_WINDOW) cs->hist_len++;
+            float sy = 0.0f, sv = 0.0f;
+            for (int i = 0; i < cs->hist_len; i++) { sy += cs->yaw_hist[i]; sv += cs->vel_hist[i]; }
+            out.delta_yaw_rad = sy / (float)cs->hist_len;
+            out.forward_vel   = sv / (float)cs->hist_len;
+        }
         return out;
     }
 
@@ -258,6 +288,17 @@ ControlOutput controller_update(ControllerState *cs,
         out.heading_error_pct = error_pct;
         out.delta_yaw_rad     = delta_yaw;
         out.forward_vel       = V_STD;
+        /* smooth & return */
+        {
+            cs->yaw_hist[cs->hist_idx] = out.delta_yaw_rad;
+            cs->vel_hist[cs->hist_idx] = out.forward_vel;
+            cs->hist_idx = (cs->hist_idx + 1) % CTRL_SMOOTH_WINDOW;
+            if (cs->hist_len < CTRL_SMOOTH_WINDOW) cs->hist_len++;
+            float sy = 0.0f, sv = 0.0f;
+            for (int i = 0; i < cs->hist_len; i++) { sy += cs->yaw_hist[i]; sv += cs->vel_hist[i]; }
+            out.delta_yaw_rad = sy / (float)cs->hist_len;
+            out.forward_vel   = sv / (float)cs->hist_len;
+        }
         return out;
     }
 
@@ -267,5 +308,16 @@ ControlOutput controller_update(ControllerState *cs,
     out.heading_error_pct = 0.0f;
     out.delta_yaw_rad     = 0.0f;
     out.forward_vel       = V_STD;
+    /* smooth & return */
+    {
+        cs->yaw_hist[cs->hist_idx] = out.delta_yaw_rad;
+        cs->vel_hist[cs->hist_idx] = out.forward_vel;
+        cs->hist_idx = (cs->hist_idx + 1) % CTRL_SMOOTH_WINDOW;
+        if (cs->hist_len < CTRL_SMOOTH_WINDOW) cs->hist_len++;
+        float sy = 0.0f, sv = 0.0f;
+        for (int i = 0; i < cs->hist_len; i++) { sy += cs->yaw_hist[i]; sv += cs->vel_hist[i]; }
+        out.delta_yaw_rad = sy / (float)cs->hist_len;
+        out.forward_vel   = sv / (float)cs->hist_len;
+    }
     return out;
 }
