@@ -22,7 +22,7 @@ Results are exposed as:
   extern volatile ControlOutput ctrl_output;     // heading + velocity
 
 Read these from your flight plan or guidance module:
-  ControlOutput cmd = *((ControlOutput*)&ctrl_output);
+  ControlOutput cmd = *((ControlOutput*)&amp;ctrl_output);
   guidance_h_set_guided_heading_delta(cmd.delta_yaw_rad);
     </description>
 
@@ -98,9 +98,16 @@ Read these from your flight plan or guidance module:
       target="nps"  → NPS simulator build
       Both include the full pipeline.
   -->
-  <makefile target="ap|nps">
-    <!-- C++17 is required for structured bindings + std::algorithm -->
+  <makefile target="nps">
+    <!-- C++17 is required -->
     <flag name="CXXFLAGS" value="-std=c++17"/>
+
+    <!-- System OpenCV (installed via apt) -->
+    <flag name="CXXFLAGS" value="I/usr/include/opencv4"/>
+    <flag name="LDFLAGS" value="lopencv_core"/>
+    <flag name="LDFLAGS" value="lopencv_imgproc"/>
+    <flag name="LDFLAGS" value="lopencv_highgui"/>
+    <flag name="LDFLAGS" value="lopencv_video"/>
 
     <!-- All pipeline sources -->
     <file name="cv_main.cpp"/>
@@ -109,7 +116,28 @@ Read these from your flight plan or guidance module:
     <file name="gate_detector_node.cpp"/>
     <file name="controller.cpp"/>
 
-    <!-- Enable live overlay by default; override with AF_8_V2_DRAW=0 -->
     <define name="AF_8_V2_DRAW" value="1"/>
   </makefile>
+<makefile target="ap">
+  <flag name="CXXFLAGS" value="-std=c++17"/>
+
+  <flag name="CXXFLAGS" value="I$(PAPARAZZI_SRC)/sw/ext/opencv_bebop/install_arm/include"/>
+  <flag name="LDFLAGS" value="L$(PAPARAZZI_SRC)/sw/ext/opencv_bebop/install_arm/lib"/>
+  <flag name="LDFLAGS" value="lopencv_world"/>
+  <flag name="LDFLAGS" value="lz"/>
+  <flag name="LDFLAGS" value="ldl"/>
+  <flag name="LDFLAGS" value="lm"/>
+  <flag name="LDFLAGS" value="lpthread"/>
+  <flag name="LDFLAGS" value="lrt"/>
+
+  <file name="cv_main.cpp"/>
+  <file name="ground_edge_node.cpp"/>
+  <file name="obstacle_detector_node.cpp"/>
+  <file name="gate_detector_node.cpp"/>
+  <file name="controller.cpp"/>
+
+  <define name="AF_8_V2_DRAW" value="1"/>
+</makefile>
+
+
 </module>

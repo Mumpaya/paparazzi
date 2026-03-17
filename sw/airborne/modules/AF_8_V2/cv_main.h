@@ -49,4 +49,10 @@ void cv_main_periodic(void);
 }
 #endif
 
+/* ── datalink-tunable settings ── */
+extern int   af8_draw_overlay;
+extern float af8_k_yaw;
+extern float af8_v_std;
+extern float af8_v_gate;
+
 #endif /* CV_MAIN_H */

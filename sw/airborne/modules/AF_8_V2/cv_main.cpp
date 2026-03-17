@@ -28,10 +28,13 @@
 
 /* Paparazzi C headers */
 extern "C" {
-#include "modules/computer_vision/cv.h"
+    #include "modules/computer_vision/cv.h"
+    #include "firmwares/rotorcraft/guidance/guidance_h.h"
+    #include "state.h"
 }
-#include "generated/airframe.h"
 
+
+#include "generated/airframe.h"
 #include <opencv2/core.hpp>
 #include <opencv2/imgproc.hpp>
 #include <cstring>
@@ -50,6 +53,13 @@ volatile ControlOutput ctrl_output;
 
 /* ── persistent controller state ───────────────────────────────── */
 static ControllerState s_ctrl;
+static float s_heading_sp = 0.0f;
+
+/* ── datalink-tunable settings (declared in af8_vision.xml) ──────── */
+int   af8_draw_overlay = 1;
+float af8_k_yaw        = K_YAW;
+float af8_v_std        = V_STD;
+float af8_v_gate       = V_GATE;
 
 /* ════════════════════════════════════════════════════════════════
  * OVERLAY DRAWING  (compiled only when AF_8_V2_DRAW == 1)
@@ -227,7 +237,7 @@ static struct image_t *cv_main_cb(struct image_t *img,
     *((FrameResults  *)&frame_results) = local;
     *((ControlOutput *)&ctrl_output)   = cmd;
 
-    /* ── Draw overlay and write back into img->buf ──────────── */
+        /* ── Draw overlay and write back into img->buf ──────────── */
 #if AF_8_V2_DRAW
     /* Annotate the rotated frame */
     draw_overlay(rotated, local, cmd);
@@ -236,10 +246,23 @@ static struct image_t *cv_main_cb(struct image_t *img,
     cv::Mat annotated_bgr;
     cv::rotate(rotated, annotated_bgr, cv::ROTATE_90_CLOCKWISE);
 
-    /* Convert BGR → YUV422 and copy back into the camera buffer.
-     * The img->buf is exactly img->w * img->h * 2 bytes (YUYV). */
-    cv::Mat yuv_out;
-    cv::cvtColor(annotated_bgr, yuv_out, cv::COLOR_BGR2YUV_YUYV);
+    /* Convert BGR → YUV422 (YUYV) and copy back into the camera buffer.
+     * COLOR_BGR2YUV_YUYV only exists in OpenCV >= 4.8, so we pack manually.
+     * img->buf is exactly img->w * img->h * 2 bytes (YUYV interleaved). */
+    cv::Mat yuv_tmp;
+    cv::cvtColor(annotated_bgr, yuv_tmp, cv::COLOR_BGR2YUV);
+    cv::Mat yuv_out(annotated_bgr.rows, annotated_bgr.cols, CV_8UC2);
+    for (int r = 0; r < annotated_bgr.rows; r++) {
+        for (int c = 0; c < annotated_bgr.cols; c += 2) {
+            uint8_t y0 = yuv_tmp.at<cv::Vec3b>(r, c)[0];
+            uint8_t u  = yuv_tmp.at<cv::Vec3b>(r, c)[1];
+            uint8_t y1 = (c + 1 < annotated_bgr.cols)
+                         ? yuv_tmp.at<cv::Vec3b>(r, c + 1)[0] : y0;
+            uint8_t v  = yuv_tmp.at<cv::Vec3b>(r, c)[2];
+            yuv_out.at<cv::Vec2b>(r, c)     = {y0, u};
+            yuv_out.at<cv::Vec2b>(r, c + 1) = {y1, v};
+        }
+    }
     memcpy(img->buf, yuv_out.data,
            (size_t)img->w * (size_t)img->h * 2u);
 #endif
@@ -262,19 +285,26 @@ void cv_main_init(void)
     gate_detector_node_init();
     controller_init(&s_ctrl);
 
+    s_heading_sp = stateGetNedToBodyEulers_f()->psi;
+
     cv_add_to_device(&front_camera, cv_main_cb, 0, 0);
 }
 
 void cv_main_periodic(void)
 {
-    /*
-     * Nothing heavy here — all work is in cv_main_cb().
-     *
-     * To drive a navigation/guidance module from here, read:
-     *   ControlOutput cmd = *((ControlOutput*)&ctrl_output);
-     * and map cmd.delta_yaw_rad / cmd.forward_vel to your
-     * guidance_h_set_guided_heading_delta() / guidance_h_set_guided_vel() calls.
-     */
+    /* Only send guidance commands while already in guided mode */
+    if (guidance_h.mode != GUIDANCE_H_MODE_GUIDED) {
+        return;  /* commands take effect next cycle */
+    }
+
+    ControlOutput cmd = *((ControlOutput *)&ctrl_output);
+
+    s_heading_sp += cmd.delta_yaw_rad;
+    FLOAT_ANGLE_NORMALIZE(s_heading_sp);
+
+    guidance_h_set_heading(s_heading_sp);
+    guidance_h_set_body_vel(cmd.forward_vel, 0.0f);
 }
+
 
 } /* extern "C" */
