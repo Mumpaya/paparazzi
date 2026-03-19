@@ -1,10 +1,6 @@
-
-
-
 import cv2
 import numpy as np
-from dataclasses import dataclass, field
-from collections import deque
+from dataclasses import dataclass
 
 
 @dataclass
@@ -133,30 +129,112 @@ class GroundEdgeDetector:
         if result.centroid is not None:
             frame_center = (w_img // 2, h_img // 2)
             cv2.arrowedLine(out, frame_center, result.centroid, (255, 255, 0), 2, tipLength=0.3)
+
+        cv2.putText(out, f"Goodness: {result.goodness}", (10, 95),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.6,
+                    (0, 255, 255) if result.over_edge else (100, 100, 100), 2)
+
         return out
 
 
 @dataclass
 class GroundFlowResult:
     base_im: np.ndarray
-    flow_vector: tuple
+    points: np.ndarray
+    flows: np.ndarray
+    avg_flow: np.ndarray
 
 
 class GroundFlow:
+    def __init__(
+        self,
+        max_corners: int = 120,
+        quality_level: float = 0.01,
+        min_distance: int = 7,
+        block_size: int = 7,
+        reseed_min_points: int = 20,
+    ):
+        self.feature_params = dict(
+            maxCorners=max_corners,
+            qualityLevel=quality_level,
+            minDistance=min_distance,
+            blockSize=block_size,
+        )
+        self.lk_params = dict(
+            winSize=(15, 15),
+            maxLevel=2,
+            criteria=(cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 10, 0.03),
+        )
+        self.reseed_min_points = reseed_min_points
+        self._prev_base_im = None
+        self._prev_pts = None
+
+    def _detect_features(self, gray_im: np.ndarray):
+        return cv2.goodFeaturesToTrack(gray_im, mask=None, **self.feature_params)
+
     def measure(self, bgr: np.ndarray) -> GroundFlowResult:
         base_im = bgr[::, ::, 1]
-        base_im = cv2.GaussianBlur(base_im, (9, 9), 0)
-        return GroundFlowResult(
-            base_im=base_im,
-            flow_vector=(0, 0),
-        )
+        # base_im = cv2.GaussianBlur(base_im, (9, 9), 0)
+        base_im = cv2.convertScaleAbs(base_im, alpha=1.3, beta=0)
+
+        points = np.empty((0, 2), dtype=np.float32)
+        flows = np.empty((0, 2), dtype=np.float32)
+        avg_flow = np.array([0.0, 0.0], dtype=np.float32)
+
+        # Bootstrap with the first frame: only detect seed points.
+        if self._prev_base_im is None:
+            self._prev_base_im = base_im
+            self._prev_pts = self._detect_features(base_im)
+            return GroundFlowResult(base_im=base_im, points=points, flows=flows, avg_flow=avg_flow)
+
+        # Track points from previous frame into current frame.
+        if self._prev_pts is not None and len(self._prev_pts) > 0:
+            next_pts, status, _ = cv2.calcOpticalFlowPyrLK(
+                self._prev_base_im,
+                base_im,
+                self._prev_pts,
+                None,
+                **self.lk_params,
+            )
+
+            if next_pts is not None and status is not None:
+                valid = status.reshape(-1) == 1
+                good_old = self._prev_pts.reshape(-1, 2)[valid]
+                good_new = next_pts.reshape(-1, 2)[valid]
+
+                if len(good_new) > 0:
+                    points = good_old.astype(np.float32)
+                    flows = (good_new - good_old).astype(np.float32)
+                    avg_flow = np.mean(flows, axis=0)
+
+
+        # Always reseed fresh points on the current frame for the next call.
+        self._prev_pts = self._detect_features(base_im)
+        self._prev_base_im = base_im
+
+        return GroundFlowResult(base_im=base_im, points=points, flows=flows, avg_flow=avg_flow)
 
     def draw(self, bgr: np.ndarray, result: GroundFlowResult) -> np.ndarray:
-        overlay = bgr.copy()
-        overlay*=0
-        out = result.base_im.copy()
-        h_img, w_img = bgr.shape[:2]
-        frame_center = (w_img // 2, h_img // 2)
-        flow_endpoint = (frame_center[0] + int(result.flow_vector[0]*50), frame_center[1] + int(result.flow_vector[1]*50))
-        cv2.arrowedLine(out, frame_center, flow_endpoint, (255, 255, 0), 2, tipLength=0.3)
+        out = cv2.cvtColor(result.base_im, cv2.COLOR_GRAY2BGR)
+
+        for point, flow in zip(result.points, result.flows):
+            start = (int(round(point[0])), int(round(point[1])))
+            end = (int(round(point[0] + flow[0])), int(round(point[1] + flow[1])))
+            cv2.arrowedLine(out, start, end, (255, 120, 0), 1, tipLength=0.25)
+
+        # Draw average flow vector from center of image
+        h, w = result.base_im.shape
+        center = (w // 2, h // 2)
+        avg_end = (int(round(center[0] + result.avg_flow[0] * 5)), int(round(center[1] + result.avg_flow[1] * 5)))
+        cv2.arrowedLine(out, center, avg_end, (0, 0, 255), 2, tipLength=0.3)
+
+        dt = 0.1
+        alt = 1
+        vel = result.avg_flow * alt / 60 / dt
+        vel_mag = np.linalg.norm(vel)
+        cv2.putText(out, f"Avg Flow: ({result.avg_flow[0]:.1f}, {result.avg_flow[1]:.1f})", (10, 25),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1)
+        cv2.putText(out, f"Estimated Velocity: ({vel[0]:.1f}, {vel[1]:.1f})", (10, 50), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1)
+        cv2.putText(out, f"Velocity Magnitude: {vel_mag:.1f}", (10, 75), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1)
+
         return out

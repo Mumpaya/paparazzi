@@ -5,7 +5,8 @@ import re
 
 from ground_edge_detector3 import GroundEdgeDetector, GroundFlow
 
-DATASET_PATH = '/home/ruben/Downloads/own_datasets/Bottom_cam_try/20260306-113610'
+# DATASET_PATH = '/home/ruben/Downloads/own_datasets/bottomcam5/20260313-105015'
+DATASET_PATH = "/home/ruben/Downloads/AE4317_2019_datasets/cyberzoo_bottomcam/20190121-152231"
 def get_image_list(folder_path: str) -> list[str]:
     """Return all images in folder, sorted by numeric filename."""
     extensions = ("*.jpg", "*.png", "*.jpeg", "*.bmp")
@@ -42,15 +43,12 @@ def main():
         result  = detector.detect(img_bgr)
         overlay = detector.draw(img_bgr, result)
 
-        # result2 = flower.measure(img_bgr)
-        # overlay = flower.draw(img_bgr, result2)
+        result2 = flower.measure(img_bgr)
+        overlay = flower.draw(img_bgr, result2)
 
         h, w    = overlay.shape[:2]
 
         
-        cv2.putText(overlay, f"Goodness: {result.goodness}", (10, 95),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.6,
-                    (0, 255, 255) if result.over_edge else (100, 100, 100), 2)
 
         cv2.putText(overlay, f"Frame: {idx}/{len(images)-1}",        # ← fixed
                     (10, 25), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1)
