@@ -122,6 +122,59 @@ ControlOutput controller_update(ControllerState *cs,
     out.coast_frames_left = cs->coast_frames;
     out.mode             = cs->mode;
 
+    /* ══════════════════════════════════════════════════════════
+     * EDGE MODE CHECK (HIGHEST PRIORITY - CHECK FIRST)
+     * ═════════════════════════════════════════════════════════ */
+    
+    static float bottom_cam_steer_threshold = 55.0f;
+    bool has_bottom_cam = fr->valid && fr->bottom_cam.detected;
+    bool bottom_cam_active = has_bottom_cam && (fr->bottom_cam.magnitude > bottom_cam_steer_threshold);
+    
+    /* Enter EDGE mode immediately if threshold exceeded */
+    if (bottom_cam_active) {
+        cs->mode = CTRL_MODE_EDGE;
+    }
+    
+    /* If already in EDGE mode, process it (regardless of what triggered entry) */
+    if (cs->mode == CTRL_MODE_EDGE) {
+        if (bottom_cam_active) {
+            /* Still detecting edge — steer towards arrow */
+            float arrow_error_px = (float)(fr->bottom_cam.cx_px - (int)(img_w / 2.0f));
+            float arrow_error_pct = (arrow_error_px / (img_w / 2.0f)) * 100.0f;
+            float arrow_error_rad = atanf(arrow_error_px / (img_w / 2.0f));
+            
+            /* AGGRESSIVE steer towards arrow */
+            float aggressive_k_yaw = 0.005f;  /* 5x more aggressive than normal */
+            out.delta_yaw_rad = aggressive_k_yaw * arrow_error_pct;
+            out.target_x_pct = 50.0f + arrow_error_pct;
+            out.heading_error_pct = arrow_error_pct;
+            out.mode = CTRL_MODE_EDGE;
+            out.action = CTRL_ACTION_EDGE_ALIGN;
+            
+            /* Check if aligned (~50 degrees = 0.873 rad) */
+            float heading_diff = fabsf(arrow_error_rad);
+            if (heading_diff < 0.873f) {
+                /* Aligned! Start moving forward */
+                out.forward_vel = V_STD;
+                cs->edge_aligned = true;
+            } else {
+                /* Still turning — stay still */
+                out.forward_vel = 0.0f;
+                cs->edge_aligned = false;
+            }
+            
+            /* NO SMOOTHING for EDGE mode - return immediately */
+            return out;
+        } else {
+            /* Edge detection lost — exit EDGE mode back to NORMAL */
+            cs->mode = CTRL_MODE_NORMAL;
+            cs->good_streak = 0;
+            cs->coast_frames = 0;
+            cs->edge_aligned = false;
+            /* Fall through to NORMAL mode logic below */
+        }
+    }
+
     /* ── gate-in-flyzone check ───────────────────────────────── */
     bool has_gate     = fr->valid && fr->gate.detected;
     bool has_flyzones = fr->valid && (fr->obstacle.n_flyzones > 0);

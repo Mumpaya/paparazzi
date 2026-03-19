@@ -2,11 +2,17 @@
  * test_visualiser.cpp — Standalone playground test for AF_8_V2 CV pipeline
  *
  * Reads all .jpg images from Playground/, runs the three detector nodes
- * and the controller on each frame, and renders a window with:
+ * and the controller on each frame, and renders two windows:
  *
+ * MAIN WINDOW (3 panels):
  *   LEFT   panel  — obstacle detector overlay (flyable zones + column scores)
  *   MIDDLE panel  — gate detector overlay (gate square, centre, angle, distance)
  *   RIGHT  panel  — controller action panel (mode, heading target, velocity)
+ *
+ * BOTTOM CAMERA WINDOW (separate popup):
+ *   — bottom camera detection visualization with arrow and centroid overlay
+ *   — runs in parallel with main 3-panel display
+ *   — loads bottom camera images from Playground_Bottom folder
  *
  * Simulated controller output is printed in the top-left corner:
  *   • obstacle: n_flyzones, each zone left/center/right px + safety
@@ -23,6 +29,7 @@
 #include "ground_edge_node.h"
 #include "obstacle_detector_node.h"
 #include "gate_detector_node.h"
+#include "bottom_cam_node.h"
 #include "controller.h"
 
 #include <opencv2/core.hpp>
@@ -198,6 +205,47 @@ static cv::Mat draw_gate(const cv::Mat &rotated, const GateResult &gate)
     return out;
 }
 
+/* ── bottom camera ground edge panel ────────────────────────────── */
+static cv::Mat draw_bottom_cam(const cv::Mat &bgr, const BottomCamResult &bc, int fw)
+{
+    cv::Mat out = bgr.clone();
+    int h = out.rows, w = out.cols;
+    
+    if (!bc.detected) {
+        txt(out, "No Detection", {w/2 - 60, h/2}, {0,0,255}, 0.7, 2);
+        return out;
+    }
+    
+    /* Frame center */
+    int fcx = w / 2, fcy = h / 2;
+    cv::circle(out, {fcx, fcy}, 4, {255, 0, 0}, -1, cv::LINE_AA);
+    
+    /* Centroid */
+    cv::circle(out, {bc.cx_px, bc.cy_px}, 8, {0, 255, 255}, 2, cv::LINE_AA);
+    
+    /* Arrow from center to centroid */
+    cv::Scalar arrow_col = bc.over_edge ? cv::Scalar(0, 0, 255) : cv::Scalar(0, 255, 0);
+    cv::arrowedLine(out, {fcx, fcy}, {bc.cx_px, bc.cy_px},
+                    arrow_col, 3, cv::LINE_AA, 0, 0.3);
+    
+    /* Info text */
+    char buf[128];
+    snprintf(buf, sizeof(buf), "Goodness: %.3f", bc.goodness);
+    txt(out, buf, {8, 25}, {0,255,255}, 0.5);
+    
+    snprintf(buf, sizeof(buf), "Magnitude: %.1f px", bc.magnitude);
+    txt(out, buf, {8, 50}, {0,255,255}, 0.5);
+    
+    snprintf(buf, sizeof(buf), "Over Edge: %s", bc.over_edge ? "YES" : "NO");
+    txt(out, buf, {8, 75}, arrow_col, 0.5);
+    
+    /* Centroid coordinates */
+    snprintf(buf, sizeof(buf), "Pos: (%d, %d)", bc.cx_px, bc.cy_px);
+    txt(out, buf, {8, 100}, {200,200,200}, 0.45);
+    
+    return out;
+}
+
 /* ── controller visualisation panel ─────────────────────────────── */
 /*
  * Renders a dark panel (same size as one camera frame) showing:
@@ -217,8 +265,21 @@ static cv::Mat draw_ctrl_panel(const ControlOutput &ctrl,
 
     /* ── mode banner ────────────────────────────────────────── */
     bool gatelock = (ctrl.mode == CTRL_MODE_GATELOCK);
-    cv::Scalar mode_col = gatelock ? cv::Scalar(0,165,255) : cv::Scalar(0,220,60);
-    const char *mode_str = gatelock ? "GATELOCK" : "NORMAL";
+    bool edge = (ctrl.mode == CTRL_MODE_EDGE);
+    
+    cv::Scalar mode_col;
+    const char *mode_str;
+    
+    if (edge) {
+        mode_col = cv::Scalar(255, 0, 0);  /* BLUE */
+        mode_str = "EDGE ALIGN";
+    } else if (gatelock) {
+        mode_col = cv::Scalar(0, 165, 255);  /* orange */
+        mode_str = "GATELOCK";
+    } else {
+        mode_col = cv::Scalar(0, 220, 60);  /* green */
+        mode_str = "NORMAL";
+    }
 
     /* filled banner bar */
     cv::rectangle(panel, {0, 0}, {w, 34}, mode_col * 0.35, -1);
@@ -236,7 +297,8 @@ static cv::Mat draw_ctrl_panel(const ControlOutput &ctrl,
         "GATE STEER",
         "GATE RECOVER",
         "GATELOCK TRACK",
-        "GATELOCK COAST"
+        "GATELOCK COAST",
+        "EDGE ALIGN"
     };
     static const cv::Scalar action_cols[] = {
         {180,180,180},   /* STRAIGHT       */
@@ -244,7 +306,8 @@ static cv::Mat draw_ctrl_panel(const ControlOutput &ctrl,
         {0, 255, 200},   /* GATE STEER     */
         {0, 165, 255},   /* GATE RECOVER   */
         {0, 200, 255},   /* GATELOCK TRACK */
-        {80, 80, 255}    /* GATELOCK COAST */
+        {80, 80, 255},   /* GATELOCK COAST */
+        {255, 0, 0}      /* EDGE ALIGN     (blue) */
     };
     int ai = (int)ctrl.action;
     cv::Scalar acol = action_cols[ai];
@@ -473,24 +536,45 @@ int main(int argc, char *argv[])
     }
     printf("Found %zu images in %s\n", images.size(), folder.c_str());
 
+    /* also try to load bottom camera images */
+    std::string bottom_folder = "sw/airborne/modules/AF_8_V2/Playground_Bottom/20260313-105015";
+    auto bottom_images = collect_images(bottom_folder);
+    if (!bottom_images.empty()) {
+        printf("Found %zu bottom camera images in %s\n", bottom_images.size(), bottom_folder.c_str());
+    } else {
+        printf("Bottom camera folder not found or empty (optional)\n");
+    }
+
     /* init nodes */
     ground_edge_node_init();
     obstacle_detector_node_init();
     gate_detector_node_init();
+    bottom_cam_node_init();
 
     /* init controller */
     ControllerState ctrl_state;
     controller_init(&ctrl_state);
 
-    cv::namedWindow("AF_8_V2 — CV Pipeline Test", cv::WINDOW_NORMAL);
-    cv::resizeWindow("AF_8_V2 — CV Pipeline Test", 2100, 620);
+    /* main window — 3 panels only */
+    cv::namedWindow("AF_8_V2 — CV Pipeline Test (3 panels)", cv::WINDOW_NORMAL);
+    cv::resizeWindow("AF_8_V2 — CV Pipeline Test (3 panels)", 1400, 620);
 
-    int idx    = 0;
-    bool paused = false;
-    int total   = (int)images.size();
+    /* bottom camera window — separate popup */
+    if (!bottom_images.empty()) {
+        cv::namedWindow("Bottom Camera Detection", cv::WINDOW_NORMAL);
+        cv::resizeWindow("Bottom Camera Detection", 650, 600);
+    }
+
+    int idx         = 0;
+    int bottom_idx  = 0;
+    bool paused     = false;
+    int total       = (int)images.size();
+    int bottom_total = (int)bottom_images.size();
 
     while (true) {
-        /* load + rotate frame */
+        /* ═══════════════════════════════════════════════
+         * MAIN WINDOW: load + rotate frame
+         * ══════════════════════════════════════════════ */
         cv::Mat raw = cv::imread(images[idx]);
         if (raw.empty()) { idx = (idx + 1) % total; continue; }
 
@@ -498,7 +582,7 @@ int main(int argc, char *argv[])
         cv::rotate(raw, frame, cv::ROTATE_90_COUNTERCLOCKWISE);
         int fw = frame.cols, fh = frame.rows;
 
-        /* run pipeline */
+        /* run pipeline (3 detectors) */
         FrameResults fr;
         memset(&fr, 0, sizeof(fr));
 
@@ -506,12 +590,21 @@ int main(int argc, char *argv[])
         /* obstacle node takes original (rotates internally) */
         obstacle_detector_node_process(raw.data, raw.cols, raw.rows, &fr.obstacle);
         gate_detector_node_process(frame.data, fw, fh, &fr.gate);
+        
+        /* Also process bottom camera in sync (from Playground_Bottom) */
+        if (!bottom_images.empty()) {
+            cv::Mat bottom_raw = cv::imread(bottom_images[bottom_idx]);
+            if (!bottom_raw.empty()) {
+                bottom_cam_node_process(bottom_raw.data, bottom_raw.cols, bottom_raw.rows, &fr.bottom_cam);
+            }
+        }
+        
         fr.valid = true;
 
         /* run controller */
         ControlOutput ctrl = controller_update(&ctrl_state, &fr, fw);
 
-        /* build three side-by-side panels */
+        /* build THREE side-by-side panels */
         cv::Mat left_panel   = draw_obstacle(frame, fr.obstacle);
         cv::Mat middle_panel = draw_gate(frame, fr.gate);
         cv::Mat right_panel  = draw_ctrl_panel(ctrl, fr, fw, fh);
@@ -525,11 +618,11 @@ int main(int argc, char *argv[])
         }
 
         /* panel labels */
-        txt(left_panel,   "OBSTACLE + FLYZONE",  {6, fh - 50}, {200,200,200}, 0.45);
-        txt(middle_panel, "GATE DETECTOR",        {6, fh - 50}, {200,200,200}, 0.45);
-        txt(right_panel,  "CONTROLLER",           {6, fh - 50}, {200,200,200}, 0.45);
+        txt(left_panel,      "OBSTACLE + FLYZONE",  {6, fh - 50}, {200,200,200}, 0.45);
+        txt(middle_panel,    "GATE DETECTOR",        {6, fh - 50}, {200,200,200}, 0.45);
+        txt(right_panel,     "CONTROLLER",           {6, fh - 50}, {200,200,200}, 0.45);
 
-        /* combine */
+        /* combine 3 panels */
         cv::Mat divider(fh, 3, CV_8UC3, cv::Scalar(60,60,60));
         cv::Mat canvas;
         cv::hconcat(std::vector<cv::Mat>{left_panel, divider,
@@ -539,16 +632,49 @@ int main(int argc, char *argv[])
         /* HUD on top of combined canvas */
         draw_hud(canvas, fr, ctrl, idx, total, paused);
 
-        cv::imshow("AF_8_V2 — CV Pipeline Test", canvas);
+        cv::imshow("AF_8_V2 — CV Pipeline Test (3 panels)", canvas);
 
-        /* advance frame */
+        /* ═══════════════════════════════════════════════
+         * BOTTOM CAMERA WINDOW (parallel): load frame
+         * ══════════════════════════════════════════════ */
+        if (!bottom_images.empty()) {
+            cv::Mat bottom_raw = cv::imread(bottom_images[bottom_idx]);
+            if (!bottom_raw.empty()) {
+                /* run bottom camera detector */
+                BottomCamResult bcam;
+                memset(&bcam, 0, sizeof(bcam));
+                bottom_cam_node_process(bottom_raw.data, bottom_raw.cols, bottom_raw.rows, &bcam);
+
+                /* visualize */
+                cv::Mat bottom_vis = draw_bottom_cam(bottom_raw, bcam, bottom_raw.cols);
+
+                /* add frame counter */
+                char bottom_info[128];
+                snprintf(bottom_info, sizeof(bottom_info), "Frame: %d / %d",
+                         bottom_idx + 1, bottom_total);
+                txt(bottom_vis, bottom_info, {8, (int)bottom_vis.rows - 20},
+                    {100, 100, 255}, 0.5);
+
+                if (paused) {
+                    txt(bottom_vis, "PAUSED", {(int)bottom_vis.cols - 120, (int)bottom_vis.rows - 20},
+                        {0, 0, 255}, 0.6);
+                }
+
+                cv::imshow("Bottom Camera Detection", bottom_vis);
+            }
+
+            /* advance bottom camera frame in sync */
+            if (!paused) bottom_idx = (bottom_idx + 1) % bottom_total;
+        }
+
+        /* advance main frame */
         if (!paused) idx = (idx + 1) % total;
 
         int key = cv::waitKey(40) & 0xFF;   /* ~25 fps */
         if (key == 'q' || key == 27) break;
         if (key == ' ') paused = !paused;
-        if (key == 'd') { paused = true;  idx = (idx + 1) % total; }
-        if (key == 'a') { paused = true;  idx = (idx - 1 + total) % total; }
+        if (key == 'd') { paused = true;  idx = (idx + 1) % total;  bottom_idx = (bottom_idx + 1) % bottom_total; }
+        if (key == 'a') { paused = true;  idx = (idx - 1 + total) % total;  bottom_idx = (bottom_idx - 1 + bottom_total) % bottom_total; }
     }
 
     cv::destroyAllWindows();

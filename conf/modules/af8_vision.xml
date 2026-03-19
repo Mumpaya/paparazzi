@@ -11,7 +11,9 @@ Runs the full detection + control pipeline on the Bebop front camera:
                              outputs up to 3 ranked flyable corridors
   3. Gate detector         — dual BGR/HSV blue-pillar tracker, outputs
                              gate centre, approach angle and distance
-  4. Controller            — NORMAL / GATELOCK state machine producing
+  4. Bottom camera node    — ground edge detection from bottom camera,
+                             outputs centroid for steering control
+  5. Controller            — NORMAL / GATELOCK state machine producing
                              delta_yaw_rad and forward_vel each frame
 
 When AF_8_V2_DRAW is enabled (default) all overlays are drawn back
@@ -74,6 +76,9 @@ Read these from your flight plan or guidance module:
         <dl_setting var="af8_v_gate"
                     min="0.0" step="0.05" max="1.0"
                     shortname="v_gate"/>
+        <dl_setting var="af8_bottom_cam_steer_threshold"
+                    min="10.0" step="5.0" max="300.0"
+                    shortname="bottom_cam_thresh"/>
       </dl_settings>
     </dl_settings>
   </settings>
@@ -114,6 +119,7 @@ Read these from your flight plan or guidance module:
     <file name="ground_edge_node.cpp"/>
     <file name="obstacle_detector_node.cpp"/>
     <file name="gate_detector_node.cpp"/>
+    <file name="bottom_cam_node.cpp"/>
     <file name="controller.cpp"/>
 
     <define name="AF_8_V2_DRAW" value="1"/>
@@ -134,6 +140,7 @@ Read these from your flight plan or guidance module:
   <file name="ground_edge_node.cpp"/>
   <file name="obstacle_detector_node.cpp"/>
   <file name="gate_detector_node.cpp"/>
+  <file name="bottom_cam_node.cpp"/>
   <file name="controller.cpp"/>
 
   <define name="AF_8_V2_DRAW" value="1"/>

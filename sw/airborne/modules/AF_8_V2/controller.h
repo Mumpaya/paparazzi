@@ -84,7 +84,8 @@ extern "C" {
 
 typedef enum {
     CTRL_MODE_NORMAL   = 0,   /**< obstacle-aware navigation           */
-    CTRL_MODE_GATELOCK = 1    /**< locked onto gate, ignore obstacles  */
+    CTRL_MODE_GATELOCK = 1,   /**< locked onto gate, ignore obstacles  */
+    CTRL_MODE_EDGE     = 2    /**< aligning to ground edge arrow       */
 } CtrlMode;
 
 /** What the controller decided to do this frame. */
@@ -94,7 +95,8 @@ typedef enum {
     CTRL_ACTION_GATE_STEER      = 2,  /**< steering toward gate (normal)   */
     CTRL_ACTION_GATE_RECOVER    = 3,  /**< rotating to regain GOOD angle   */
     CTRL_ACTION_GATELOCK_TRACK  = 4,  /**< GATELOCK tracking gate          */
-    CTRL_ACTION_GATELOCK_COAST  = 5   /**< GATELOCK coast (gate lost)      */
+    CTRL_ACTION_GATELOCK_COAST  = 5,  /**< GATELOCK coast (gate lost)      */
+    CTRL_ACTION_EDGE_ALIGN      = 6   /**< EDGE mode: aligning to arrow    */
 } CtrlAction;
 
 /** The controller outputs one of these per frame. */
@@ -123,6 +125,7 @@ typedef struct {
     CtrlMode mode;
     int      good_streak;      /**< consecutive GOOD+unobstructed frames */
     int      coast_frames;     /**< frames remaining in GATELOCK coast   */
+    bool     edge_aligned;     /**< EDGE mode: true when arrow aligned   */
     /* history buffers for simple moving-average smoothing */
     float    yaw_hist[CTRL_SMOOTH_WINDOW];
     float    vel_hist[CTRL_SMOOTH_WINDOW];

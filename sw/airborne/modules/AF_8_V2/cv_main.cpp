@@ -24,6 +24,7 @@
 #include "ground_edge_node.h"
 #include "obstacle_detector_node.h"
 #include "gate_detector_node.h"
+#include "bottom_cam_node.h"
 #include "controller.h"
 
 /* Paparazzi C headers */
@@ -60,6 +61,7 @@ int   af8_draw_overlay = 1;
 float af8_k_yaw        = K_YAW;
 float af8_v_std        = V_STD;
 float af8_v_gate       = V_GATE;
+float af8_bottom_cam_steer_threshold = 80.0f;  /* pixels — magnitude threshold for steering */
 
 /* ════════════════════════════════════════════════════════════════
  * OVERLAY DRAWING  (compiled only when AF_8_V2_DRAW == 1)
@@ -228,6 +230,7 @@ static struct image_t *cv_main_cb(struct image_t *img,
     ground_edge_node_process(rotated.data, rot_w, rot_h, &local.ground_edge);
     obstacle_detector_node_process(bgr.data, bgr.cols, bgr.rows, &local.obstacle);
     gate_detector_node_process(rotated.data, rot_w, rot_h, &local.gate);
+    bottom_cam_node_process(bgr.data, bgr.cols, bgr.rows, &local.bottom_cam);
     local.valid = true;
 
     /* ── Run controller ─────────────────────────────────────── */
@@ -283,6 +286,7 @@ void cv_main_init(void)
     ground_edge_node_init();
     obstacle_detector_node_init();
     gate_detector_node_init();
+    bottom_cam_node_init();
     controller_init(&s_ctrl);
 
     s_heading_sp = stateGetNedToBodyEulers_f()->psi;

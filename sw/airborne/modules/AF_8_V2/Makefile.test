@@ -1,5 +1,5 @@
-# Makefile for AF_8_V2 standalone CV pipeline test
-# Run from the paparazzi root:  make -f sw/airborne/modules/AF_8_V2/Makefile
+# Makefile for AF_8_V2 standalone CV pipeline tests
+# Run from the paparazzi root:  make -f sw/airborne/modules/AF_8_V2/Makefile.test
 
 MODULE_DIR := sw/airborne/modules/AF_8_V2
 
@@ -9,25 +9,39 @@ CXXFLAGS := -std=c++17 -O2 -Wall \
             $(shell pkg-config --cflags opencv4)
 LDFLAGS  := $(shell pkg-config --libs opencv4)
 
-SRCS := \
-    $(MODULE_DIR)/test_visualiser.cpp \
+# Common detector sources
+DETECTORS := \
     $(MODULE_DIR)/ground_edge_node.cpp \
+    $(MODULE_DIR)/bottom_cam_node.cpp \
     $(MODULE_DIR)/obstacle_detector_node.cpp \
     $(MODULE_DIR)/gate_detector_node.cpp \
     $(MODULE_DIR)/controller.cpp
 
-TARGET := $(MODULE_DIR)/test_visualiser
+# Main test visualiser (4 panels)
+SRCS_VISUALISER := $(DETECTORS) $(MODULE_DIR)/test_visualiser.cpp
+TARGET_VISUALISER := $(MODULE_DIR)/test_visualiser
 
-.PHONY: all run clean
+# Bottom camera specific test
+SRCS_BOTTOM_CAM := $(MODULE_DIR)/bottom_cam_node.cpp $(MODULE_DIR)/test_bottom_cam_node.cpp
+TARGET_BOTTOM_CAM := $(MODULE_DIR)/test_bottom_cam_node
 
-all: $(TARGET)
+.PHONY: all run run_bottom_cam clean
 
-$(TARGET): $(SRCS)
+all: $(TARGET_VISUALISER) $(TARGET_BOTTOM_CAM)
+
+$(TARGET_VISUALISER): $(SRCS_VISUALISER)
 	$(CXX) $(CXXFLAGS) $^ -o $@ $(LDFLAGS)
-	@echo "Build OK → $(TARGET)"
+	@echo "Build OK → $(TARGET_VISUALISER)"
 
-run: $(TARGET)
-	./$(TARGET) $(MODULE_DIR)/Playground
+$(TARGET_BOTTOM_CAM): $(SRCS_BOTTOM_CAM)
+	$(CXX) $(CXXFLAGS) $^ -o $@ $(LDFLAGS)
+	@echo "Build OK → $(TARGET_BOTTOM_CAM)"
+
+run: $(TARGET_VISUALISER)
+	./$(TARGET_VISUALISER) $(MODULE_DIR)/Playground
+
+run_bottom_cam: $(TARGET_BOTTOM_CAM)
+	./$(TARGET_BOTTOM_CAM) $(MODULE_DIR)/Playground_Bottom/20260313-105015
 
 clean:
-	rm -f $(TARGET)
+	rm -f $(TARGET_VISUALISER) $(TARGET_BOTTOM_CAM)

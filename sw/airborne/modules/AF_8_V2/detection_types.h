@@ -175,6 +175,30 @@ typedef struct {
 
 
 /* ================================================================
+ * BOTTOM CAMERA NODE — ground edge detection from bottom camera
+ * ================================================================ */
+
+typedef struct {
+    /* Centroid of detected ground edge (pixels) */
+    int32_t cx_px;              /* x coordinate                          */
+    int32_t cy_px;              /* y coordinate                          */
+
+    /* Confidence score [0, 1] — fraction of good pixels in mask */
+    float   goodness;
+
+    /* Distance from frame centre to centroid (pixels).
+     * Used by control: if magnitude > threshold, steer towards centroid. */
+    float   magnitude;
+
+    /* Centroid is beyond edge threshold (80% of half-frame width) */
+    bool    over_edge;
+
+    /* Valid detection this frame */
+    bool    detected;
+} BottomCamResult;
+
+
+/* ================================================================
  * CENTRAL FRAME RESULTS — one per frame, read by controller
  * ================================================================ */
 
@@ -185,6 +209,7 @@ typedef struct {
     GroundEdgeResult  ground_edge;
     ObstacleResult    obstacle;
     GateResult        gate;
+    BottomCamResult   bottom_cam;
 } FrameResults;
 
 
