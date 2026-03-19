@@ -3,7 +3,7 @@ import os
 import glob
 import re
 
-from ground_edge_detector3 import GroundEdgeDetector
+from ground_edge_detector3 import GroundEdgeDetector, GroundFlow
 
 DATASET_PATH = '/home/ruben/Downloads/own_datasets/Bottom_cam_try/20260306-113610'
 def get_image_list(folder_path: str) -> list[str]:
@@ -20,6 +20,7 @@ def get_image_list(folder_path: str) -> list[str]:
 def main():
     images = get_image_list(DATASET_PATH)
     detector = GroundEdgeDetector()
+    flower = GroundFlow()
 
     print("Starting video playback. Controls:")
     print("  SPACE : pause / resume")
@@ -40,6 +41,9 @@ def main():
 
         result  = detector.detect(img_bgr)
         overlay = detector.draw(img_bgr, result)
+
+        # result2 = flower.measure(img_bgr)
+        # overlay = flower.draw(img_bgr, result2)
 
         h, w    = overlay.shape[:2]
 
