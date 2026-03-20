@@ -122,6 +122,15 @@
     <define name="USE_GPS_ALT"         value="1"/>
     <define name="VFF_R_GPS"           value="0.01"/>
   </section>
+  <section name="sonar_bebop" prefix="SONAR">
+      <define name="USE_SONAR" value="TRUE"/>
+      
+      <define name="SONAR_BEBOP_FILTER_NARROW_OBSTACLES" value="TRUE"/>
+      
+      <define name="SONAR_BEBOP_FILTER_NARROW_OBSTACLES_JUMP" value="0.4"/>
+      
+      <define name="SONAR_BEBOP_FILTER_NARROW_OBSTACLES_TIME" value="1.0"/>
+  </section>
   <section name="STABILIZATION_ATTITUDE_INDI" prefix="STABILIZATION_INDI_">
     <define name="G1_P" value="0.0397"/>
     <define name="G1_Q" value="0.0299"/>
