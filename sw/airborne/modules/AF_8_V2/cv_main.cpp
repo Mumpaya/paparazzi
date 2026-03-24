@@ -213,7 +213,7 @@ static struct image_t *cv_main_cb(struct image_t *img,
 {
     if (!img || img->type != IMAGE_YUV422) return img;
 
-    /* ── Convert YUV422 → BGR ────────────────────────────────── */
+   /* ── Convert YUV422 → BGR ────────────────────────────────── */
     cv::Mat yuv(img->h, img->w, CV_8UC2, img->buf);
     cv::Mat bgr_full;
     cv::cvtColor(yuv, bgr_full, cv::COLOR_YUV2BGR_YUYV);
@@ -254,9 +254,17 @@ static struct image_t *cv_main_cb(struct image_t *img,
     /* Annotate the rotated frame */
     draw_overlay(rotated, local, cmd);
 
-    /* Rotate back to original (CW = undo CCW) */
+    /* Rotate back to original landscape orientation (CW = undo CCW) */
     cv::Mat annotated_bgr;
     cv::rotate(rotated, annotated_bgr, cv::ROTATE_90_CLOCKWISE);
+
+    /* ── FIX: Stretch image back to the hardware buffer size ── */
+    /* If we downscaled the image earlier, we MUST scale it back up  */
+    /* before copying to img->buf, otherwise memcpy will segfault!   */
+    if (annotated_bgr.cols != img->w || annotated_bgr.rows != img->h) {
+        cv::resize(annotated_bgr, annotated_bgr, cv::Size(img->w, img->h), 0, 0, cv::INTER_LINEAR);
+    }
+    /* ───────────────────────────────────────────────────────── */
 
     /* Convert BGR → YUV422 (YUYV) and copy back into the camera buffer.
      * COLOR_BGR2YUV_YUYV only exists in OpenCV >= 4.8, so we pack manually.
@@ -264,6 +272,7 @@ static struct image_t *cv_main_cb(struct image_t *img,
     cv::Mat yuv_tmp;
     cv::cvtColor(annotated_bgr, yuv_tmp, cv::COLOR_BGR2YUV);
     cv::Mat yuv_out(annotated_bgr.rows, annotated_bgr.cols, CV_8UC2);
+    
     for (int r = 0; r < annotated_bgr.rows; r++) {
         for (int c = 0; c < annotated_bgr.cols; c += 2) {
             uint8_t y0 = yuv_tmp.at<cv::Vec3b>(r, c)[0];
@@ -275,6 +284,7 @@ static struct image_t *cv_main_cb(struct image_t *img,
             yuv_out.at<cv::Vec2b>(r, c + 1) = {y1, v};
         }
     }
+    
     memcpy(img->buf, yuv_out.data,
            (size_t)img->w * (size_t)img->h * 2u);
 #endif
