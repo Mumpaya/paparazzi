@@ -79,6 +79,9 @@ Read these from your flight plan or guidance module:
         <dl_setting var="af8_bottom_cam_steer_threshold"
                     min="10.0" step="5.0" max="300.0"
                     shortname="bottom_cam_thresh"/>
+        <dl_setting var="af8_image_scale"
+                    min="0.25" step="0.25" max="1.0"
+                    shortname="img_scale"/>
       </dl_settings>
     </dl_settings>
   </settings>
