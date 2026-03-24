@@ -29,6 +29,8 @@
         <dl_setting var="obs_w_ng"            min="0.0" step="0.05" max="1.0" shortname="w_ng"/>
         <dl_setting var="obs_w_ed"            min="0.0" step="0.05" max="1.0" shortname="w_ed"/>
         <dl_setting var="obs_w_ll"            min="0.0" step="0.05" max="1.0" shortname="w_ll"/>
+        <dl_setting var="obs_min_size"        min="0.0" step="0.01" max="0.5" shortname="min_size"/>
+        <dl_setting var="obs_danger_confirm_frames" min="1" step="1" max="10" shortname="dng_frm"/>
         <dl_setting var="obs_hsv_h_lo"        min="0"   step="1"    max="180" shortname="h_lo"/>
         <dl_setting var="obs_hsv_h_hi"        min="0"   step="1"    max="180" shortname="h_hi"/>
         <dl_setting var="obs_hsv_s_lo"        min="0"   step="1"    max="255" shortname="s_lo"/>

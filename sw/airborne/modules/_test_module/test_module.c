@@ -78,11 +78,13 @@ float obs_ema_alpha       = 0.3f;
 float obs_w_ng            = 0.50f;
 float obs_w_ed            = 0.30f;
 float obs_w_ll            = 0.20f;
-int   obs_hsv_h_lo        = 35;
-int   obs_hsv_h_hi        = 85;
-int   obs_hsv_s_lo        = 40;
-int   obs_hsv_s_hi        = 255;
-int   obs_hsv_v_lo        = 30;
+float obs_min_size        = 0.04f;
+int   obs_danger_confirm_frames = 3;
+int   obs_hsv_h_lo        = 10;   // beige/tan floor hue starts around 10 (OpenCV 0-180)
+int   obs_hsv_h_hi        = 35;   // upper bound for warm yellow-tan
+int   obs_hsv_s_lo        = 5;    // beige has very low saturation
+int   obs_hsv_s_hi        = 80;   // cap saturation — richer colours are obstacles
+int   obs_hsv_v_lo        = 120;  // floor is brightly lit
 int   obs_hsv_v_hi        = 255;
 // ── State machine ─────────────────────────────────────────────────────────────
 enum edge_state_t {
@@ -106,8 +108,10 @@ static volatile float obs_score      = 0.f;
 static volatile float obs_centroid_x = 0.f;
 static volatile float obs_size       = 0.f;
 static volatile float obs_green_ratio = 0.f;
+static volatile int   obs_calib_request = 0;
 
 static int16_t  safe_frame_cnt  = 0;
+static int16_t  danger_frame_cnt = 0;
 static float    turn_direction  = 1.f;
 static const int16_t frames_confirm_safe = 5;
 static int16_t  backup_cnt      = 0;
@@ -139,6 +143,12 @@ static struct image_t *edge_cv_func(struct image_t *img,
     return NULL;
   }
 
+  if (obs_calib_request) {
+    obstacle_start_ground_calibration();
+    obs_calib_request = 0;
+    VERBOSE_PRINT("Ground calibration requested. Sampling floor ROI...\n");
+  }
+
   struct ObstacleConfig cfg = build_obstacle_cfg();
 
   struct obstacle_result res = detect_obstacles(
@@ -158,6 +168,20 @@ static struct image_t *edge_cv_func(struct image_t *img,
   obs_centroid_x  = res.obstacle_centroid_x;
   obs_size        = res.obstacle_size;
   obs_green_ratio = res.green_ratio;
+
+  {
+    int h_lo, h_hi, s_lo, s_hi, v_lo, v_hi;
+    if (obstacle_consume_calibrated_hsv(&h_lo, &h_hi, &s_lo, &s_hi, &v_lo, &v_hi)) {
+      obs_hsv_h_lo = h_lo;
+      obs_hsv_h_hi = h_hi;
+      obs_hsv_s_lo = s_lo;
+      obs_hsv_s_hi = s_hi;
+      obs_hsv_v_lo = v_lo;
+      obs_hsv_v_hi = v_hi;
+      VERBOSE_PRINT("Applied floor HSV calibration: H[%d..%d] S[%d..%d] V[%d..%d]\n",
+                    h_lo, h_hi, s_lo, s_hi, v_lo, v_hi);
+    }
+  }
 
   return NULL;
 }
@@ -195,22 +219,33 @@ void periodic_func(void)
   if (guidance_h.mode != GUIDANCE_H_MODE_GUIDED) {
     edge_state     = EDGE_SAFE;
     safe_frame_cnt = 0;
+    danger_frame_cnt = 0;
     return;
   }
 
-  // Danger: fused obstacle score exceeds threshold (0..1 normalised)
-  int8_t danger = (obs_score > obs_score_threshold);
+  // Danger only if score and non-green area both persist.
+  int8_t danger_raw = (obs_score > obs_score_threshold) &&
+                      (obs_size > obs_min_size);
+  int16_t confirm_frames = (obs_danger_confirm_frames < 1) ? 1 : obs_danger_confirm_frames;
+  if (danger_raw) {
+    if (danger_frame_cnt < 1000) {
+      danger_frame_cnt++;
+    }
+  } else {
+    danger_frame_cnt = 0;
+  }
+  int8_t danger = (danger_frame_cnt >= confirm_frames);
 
-  if (!danger) {
+  if (!danger_raw) {
     safe_frame_cnt++;
   } else {
     safe_frame_cnt = 0;
   }
 
-  VERBOSE_PRINT("state=%d score=%.2f cx=%.2f green=%.2f lines=%d total=%.0f safe=%d\n",
-                edge_state, (double)obs_score, (double)obs_centroid_x,
-                (double)obs_green_ratio, front_line_count,
-                (double)front_line_total, safe_frame_cnt);
+  VERBOSE_PRINT("state=%d score=%.2f size=%.2f cx=%.2f green=%.2f danger=%d/%d safe=%d\n",
+                edge_state, (double)obs_score, (double)obs_size, (double)obs_centroid_x,
+                (double)obs_green_ratio, danger_frame_cnt, confirm_frames,
+                safe_frame_cnt);
 
   switch (edge_state) {
 
@@ -261,6 +296,7 @@ void periodic_func(void)
         guidance_h_set_heading(stateGetNedToBodyEulers_f()->psi);
         edge_state     = EDGE_SAFE;
         safe_frame_cnt = 0;
+        danger_frame_cnt = 0;
       }
       break;
 
@@ -276,5 +312,10 @@ void orange_avoider_guided_retreat(void)
   guidance_h_set_body_vel(-green_max_speed, 0);
   edge_state     = EDGE_TURNING;
   safe_frame_cnt = 0;
+}
+
+void ground_calibration_start(void)
+{
+  obs_calib_request = 1;
 }
 

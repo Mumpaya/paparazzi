@@ -55,6 +55,15 @@ struct ObstacleConfig {
 
   /* Minimum contour area to keep (pixels in full-res) */
   int min_contour_area;
+
+  /* Morphological cleanup for Canny edges (odd kernel size, 0 disables) */
+  int edge_open_ksize;
+
+  /* Minimum Hough segment length in full-resolution pixels */
+  int min_line_len_px;
+
+  /* If non-green is below this, edge/line evidence is down-weighted */
+  float min_non_green_for_edges;
 };
 
 /* ── New fused result ───────────────────────────────────────────────────── */
@@ -80,6 +89,20 @@ struct obstacle_result {
 struct obstacle_result detect_obstacles(char *img, int width, int height,
                                         int canny_low, int canny_high,
                                         struct ObstacleConfig cfg);
+
+/*
+ * Start floor-colour calibration from the current bottom-camera view.
+ * Calibration runs over multiple frames inside detect_obstacles().
+ */
+void obstacle_start_ground_calibration(void);
+
+/*
+ * Fetch the latest calibrated HSV bounds once.
+ * Returns 1 when new bounds are available, 0 otherwise.
+ */
+int obstacle_consume_calibrated_hsv(int *h_lo, int *h_hi,
+                                    int *s_lo, int *s_hi,
+                                    int *v_lo, int *v_hi);
 
 /*
  * Return a config struct filled with sensible defaults.

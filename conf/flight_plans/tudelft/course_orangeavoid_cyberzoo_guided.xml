@@ -1,5 +1,5 @@
 <!DOCTYPE flight_plan SYSTEM "../flight_plan.dtd">
-<flight_plan alt="1.0" ground_alt="0" lat0="51.990634" lon0="4.376789" max_dist_from_home="60" name="Bebop avoid orange guided TU Delft Cyberzoo" security_height="0.4">
+<flight_plan alt="1.8" ground_alt="0" lat0="51.990634" lon0="4.376789" max_dist_from_home="60" name="Bebop avoid orange guided TU Delft Cyberzoo" security_height="0.4">
 
   <!--=== Header: module and Gazebo simulation world includes ===-->
   <header>
@@ -129,6 +129,11 @@ inline void setGuided(void){
 
     <block key="g" name="START" strip_button="Go" strip_icon="lookfore.png">
       <call_once fun="setGuided()"/>
+      <stay wp="STDBY"/>
+    </block>
+
+    <block key="c" name="CALIBRATE GROUND" strip_button="Calibrate Floor" strip_icon="lookfore.png">
+      <call_once fun="ground_calibration_start()"/>
       <stay wp="STDBY"/>
     </block>
 

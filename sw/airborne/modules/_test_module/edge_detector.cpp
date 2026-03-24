@@ -24,12 +24,117 @@
 #include <algorithm>
 #include <vector>
 #include <cstring>
+#include <cstdint>
 
 #include <opencv2/core/core.hpp>
 #include <opencv2/imgproc/imgproc.hpp>
 
 using namespace std;
 using namespace cv;
+
+enum GroundCalibStatus {
+  CALIB_IDLE = 0,
+  CALIB_RUNNING = 1,
+  CALIB_OK = 2,
+  CALIB_FAIL = 3
+};
+
+static bool     g_calib_active = false;
+static bool     g_calib_pending = false;
+static int      g_calib_status = CALIB_IDLE;
+static int      g_calib_frames = 0;
+static int      g_calib_status_ttl = 0;
+static const int g_calib_target_frames = 30;
+static uint32_t g_hist_h[181];
+static uint32_t g_hist_s[256];
+static uint32_t g_hist_v[256];
+static uint32_t g_calib_samples = 0;
+static int      g_cal_h_lo = 10, g_cal_h_hi = 35;
+static int      g_cal_s_lo = 5,  g_cal_s_hi = 80;
+static int      g_cal_v_lo = 120, g_cal_v_hi = 255;
+
+static void calib_clear_hist(void)
+{
+  memset(g_hist_h, 0, sizeof(g_hist_h));
+  memset(g_hist_s, 0, sizeof(g_hist_s));
+  memset(g_hist_v, 0, sizeof(g_hist_v));
+  g_calib_samples = 0;
+  g_calib_frames = 0;
+}
+
+static int hist_percentile(const uint32_t *hist, int n_bins,
+                           uint32_t total, float p)
+{
+  if (total == 0 || n_bins <= 0) {
+    return 0;
+  }
+  if (p < 0.f) p = 0.f;
+  if (p > 1.f) p = 1.f;
+
+  uint32_t target = (uint32_t)((float)(total - 1) * p);
+  uint32_t acc = 0;
+  for (int i = 0; i < n_bins; i++) {
+    acc += hist[i];
+    if (acc > target) {
+      return i;
+    }
+  }
+  return n_bins - 1;
+}
+
+static void enforce_span(int *lo, int *hi, int min_span, int lo_lim, int hi_lim)
+{
+  int span = *hi - *lo;
+  if (span >= min_span) {
+    return;
+  }
+  int center = (*hi + *lo) / 2;
+  int half = min_span / 2;
+  *lo = center - half;
+  *hi = center + (min_span - half);
+  if (*lo < lo_lim) {
+    int d = lo_lim - *lo;
+    *lo += d;
+    *hi += d;
+  }
+  if (*hi > hi_lim) {
+    int d = *hi - hi_lim;
+    *lo -= d;
+    *hi -= d;
+  }
+  *lo = max(*lo, lo_lim);
+  *hi = min(*hi, hi_lim);
+}
+
+void obstacle_start_ground_calibration(void)
+{
+  calib_clear_hist();
+  g_calib_active = true;
+  g_calib_pending = false;
+  g_calib_status = CALIB_RUNNING;
+  g_calib_status_ttl = 90;
+}
+
+int obstacle_consume_calibrated_hsv(int *h_lo, int *h_hi,
+                                    int *s_lo, int *s_hi,
+                                    int *v_lo, int *v_hi)
+{
+  if (!g_calib_pending) {
+    return 0;
+  }
+  if (!h_lo || !h_hi || !s_lo || !s_hi || !v_lo || !v_hi) {
+    return 0;
+  }
+
+  *h_lo = g_cal_h_lo;
+  *h_hi = g_cal_h_hi;
+  *s_lo = g_cal_s_lo;
+  *s_hi = g_cal_s_hi;
+  *v_lo = g_cal_v_lo;
+  *v_hi = g_cal_v_hi;
+  g_calib_pending = false;
+  return 1;
+}
 
 /* ====================================================================== */
 /*  Helper: Euclidean segment length                                      */
@@ -103,16 +208,15 @@ struct ObstacleConfig obstacle_config_defaults(void)
   struct ObstacleConfig c;
   memset(&c, 0, sizeof(c));
 
-  /* HSV green range (H 0-180 in OpenCV) */
-  /* HSV green range */
-/* HSV green range (very lenient) */
-c.hsv_h_lo = 15;
-c.hsv_h_hi = 110;
+  /* HSV range for beige/tan floor (H 0-180 in OpenCV)  */
+  /* Beige: low hue (yellow-tan side), low saturation, bright */
+c.hsv_h_lo = 10;   // warm yellow-tan starts ~10
+c.hsv_h_hi = 35;   // stays below pure green
 
-c.hsv_s_lo = 10;
-c.hsv_s_hi = 255;
+c.hsv_s_lo = 5;    // beige is barely saturated
+c.hsv_s_hi = 80;   // reject fully-saturated (non-floor) colours
 
-c.hsv_v_lo = 5;
+c.hsv_v_lo = 120;  // floor is well-lit
 c.hsv_v_hi = 255;
 
 /* morphology */
@@ -140,6 +244,11 @@ c.morph_ksize = 7;
 
   /* Min contour area (full-res pixels) */
   c.min_contour_area = 200;
+
+  /* Edge cleanup and gating for real-world noise */
+  c.edge_open_ksize = 3;
+  c.min_line_len_px = 20;
+  c.min_non_green_for_edges = 0.06f;
 
   return c;
 }
@@ -169,6 +278,66 @@ struct obstacle_result detect_obstacles(char *img, int width, int height,
   /* ── 2a. BGR → HSV ─────────────────────────────────────────────────── */
   Mat hsv;
   cvtColor(bgr, hsv, cv::COLOR_BGR2HSV);
+
+  if (g_calib_active) {
+    int x0 = (width * 25) / 100;
+    int x1 = (width * 75) / 100;
+    int y0 = (height * 55) / 100;
+    int y1 = (height * 95) / 100;
+
+    x0 = max(0, min(x0, width - 1));
+    x1 = max(x0 + 1, min(x1, width));
+    y0 = max(0, min(y0, height - 1));
+    y1 = max(y0 + 1, min(y1, height));
+
+    for (int r = y0; r < y1; r += 2) {
+      const Vec3b *ph = hsv.ptr<Vec3b>(r);
+      for (int c = x0; c < x1; c += 2) {
+        int h = ph[c][0];
+        int s = ph[c][1];
+        int v = ph[c][2];
+        h = max(0, min(h, 180));
+        s = max(0, min(s, 255));
+        v = max(0, min(v, 255));
+        g_hist_h[h]++;
+        g_hist_s[s]++;
+        g_hist_v[v]++;
+        g_calib_samples++;
+      }
+    }
+
+    g_calib_frames++;
+    if (g_calib_frames >= g_calib_target_frames) {
+      if (g_calib_samples < 500) {
+        g_calib_status = CALIB_FAIL;
+        g_calib_status_ttl = 120;
+      } else {
+        int h10 = hist_percentile(g_hist_h, 181, g_calib_samples, 0.10f);
+        int h90 = hist_percentile(g_hist_h, 181, g_calib_samples, 0.90f);
+        int s10 = hist_percentile(g_hist_s, 256, g_calib_samples, 0.10f);
+        int s90 = hist_percentile(g_hist_s, 256, g_calib_samples, 0.90f);
+        int v10 = hist_percentile(g_hist_v, 256, g_calib_samples, 0.10f);
+        int v90 = hist_percentile(g_hist_v, 256, g_calib_samples, 0.90f);
+
+        g_cal_h_lo = max(0, h10 - 6);
+        g_cal_h_hi = min(180, h90 + 6);
+        g_cal_s_lo = max(0, s10 - 18);
+        g_cal_s_hi = min(255, s90 + 18);
+        g_cal_v_lo = max(0, v10 - 18);
+        g_cal_v_hi = min(255, v90 + 18);
+
+        enforce_span(&g_cal_h_lo, &g_cal_h_hi, 12, 0, 180);
+        enforce_span(&g_cal_s_lo, &g_cal_s_hi, 30, 0, 255);
+        enforce_span(&g_cal_v_lo, &g_cal_v_hi, 35, 0, 255);
+
+        g_calib_pending = true;
+        g_calib_status = CALIB_OK;
+        g_calib_status_ttl = 160;
+      }
+
+      g_calib_active = false;
+    }
+  }
 
   /* ── 3. Green mask: HSV in-range ───────────────────────────────────── */
   Mat green_mask;
@@ -211,6 +380,9 @@ struct obstacle_result detect_obstacles(char *img, int width, int height,
 
   int ds_w = cfg.ds_width;
   int ds_h = cfg.ds_height;
+  Mat non_green_ds;
+  resize(non_green, non_green_ds, Size(ds_w, ds_h), 0, 0, INTER_NEAREST);
+
   Mat gray_ds;
   resize(gray, gray_ds, Size(ds_w, ds_h), 0, 0, INTER_AREA);
   GaussianBlur(gray_ds, gray_ds, Size(5, 5), 1.5);
@@ -218,12 +390,35 @@ struct obstacle_result detect_obstacles(char *img, int width, int height,
   Mat edges_ds;
   Canny(gray_ds, edges_ds, canny_low, canny_high);
 
+  /* Keep edge evidence mostly where floor segmentation says "not green". */
+  bitwise_and(edges_ds, non_green_ds, edges_ds);
+
+  if (cfg.edge_open_ksize >= 3) {
+    Mat edge_kern = getStructuringElement(MORPH_ELLIPSE,
+                                          Size(cfg.edge_open_ksize,
+                                               cfg.edge_open_ksize));
+    morphologyEx(edges_ds, edges_ds, MORPH_OPEN, edge_kern);
+  }
+
+  vector<Vec4i> raw_lines;
   vector<Vec4i> lines;
-  HoughLinesP(edges_ds, lines, 1, CV_PI / 180, 30, 15, 8);
+  HoughLinesP(edges_ds, raw_lines, 1, CV_PI / 180, 30, 15, 8);
 
   /* Scale factors from downscaled coords to full-res */
   float sx = (float)width  / (float)ds_w;
   float sy = (float)height / (float)ds_h;
+
+  /* Reject tiny line fragments that are usually texture noise. */
+  for (size_t i = 0; i < raw_lines.size(); i++) {
+    float x1 = raw_lines[i][0] * sx;
+    float y1 = raw_lines[i][1] * sy;
+    float x2 = raw_lines[i][2] * sx;
+    float y2 = raw_lines[i][3] * sy;
+    float len = sqrtf((x2 - x1) * (x2 - x1) + (y2 - y1) * (y2 - y1));
+    if (len >= (float)cfg.min_line_len_px) {
+      lines.push_back(raw_lines[i]);
+    }
+  }
 
   /* ── 5b. Legacy line metrics (full-res coords) ────────────────────── */
   int half_h = height / 2;
@@ -263,6 +458,8 @@ struct obstacle_result detect_obstacles(char *img, int width, int height,
   int cell_h  = front_h / cfg.grid_rows;
 
   float max_score_cell  = 0.f;
+  float mean_score_sum  = 0.f;
+  float mean_score_wsum = 0.f;
   float score_cx_sum    = 0.f;
   float score_weight_sum = 0.f;
 
@@ -312,6 +509,15 @@ struct obstacle_result detect_obstacles(char *img, int width, int height,
       }
       float max_line_norm = clampf(max_ll / diag, 0.f, 1.f);
 
+      /* Edges and short lines inside mostly-green cells are often noise. */
+      float ev_scale = 1.f;
+      if (non_green_area < cfg.min_non_green_for_edges && cfg.min_non_green_for_edges > 1e-6f) {
+        ev_scale = non_green_area / cfg.min_non_green_for_edges;
+      }
+      ev_scale = clampf(ev_scale, 0.f, 1.f);
+      edge_density *= ev_scale;
+      max_line_norm *= ev_scale;
+
       /* Per-cell score */
       float sc = clampf(cfg.w_ng * non_green_area +
                          cfg.w_ed * edge_density +
@@ -324,6 +530,8 @@ struct obstacle_result detect_obstacles(char *img, int width, int height,
       }
 
       if (sc > max_score_cell) max_score_cell = sc;
+      mean_score_sum += sc * row_weight;
+      mean_score_wsum += row_weight;
 
       /* Weighted centroid: cell centre-x in [-1, 1] */
       float cell_cx = ((float)(x0 + x1) * 0.5f / (float)width) * 2.f - 1.f;
@@ -333,7 +541,9 @@ struct obstacle_result detect_obstacles(char *img, int width, int height,
   }
 
   /* ── 7. Aggregate global score & centroid ──────────────────────────── */
-  float raw_score = max_score_cell;
+  float mean_score = (mean_score_wsum > 1e-6f) ? (mean_score_sum / mean_score_wsum) : 0.f;
+  /* Blend peak danger with global consistency to avoid one-cell spikes. */
+  float raw_score = clampf(0.65f * max_score_cell + 0.35f * mean_score, 0.f, 1.f);
   float raw_cx    = (score_weight_sum > 1e-6f)
                       ? (score_cx_sum / score_weight_sum)
                       : 0.f;
@@ -507,6 +717,36 @@ struct obstacle_result detect_obstacles(char *img, int width, int height,
             FONT_HERSHEY_SIMPLEX, 0.55, Scalar(0, 0, 0), 3);
     putText(debug_bgr, status, Point(width - 75, 18),
             FONT_HERSHEY_SIMPLEX, 0.55, scolor, 2);
+  }
+
+  /* Ground-calibration status in top-left */
+  {
+    char ctxt[96];
+    Scalar ccol(255, 255, 255);
+    if (g_calib_active) {
+      snprintf(ctxt, sizeof(ctxt), "CALIBRATING FLOOR %d/%d",
+               g_calib_frames, g_calib_target_frames);
+      ccol = Scalar(0, 255, 255);
+    } else if (g_calib_status == CALIB_OK && g_calib_status_ttl > 0) {
+      snprintf(ctxt, sizeof(ctxt), "CALIBRATED H[%d..%d] S[%d..%d] V[%d..%d]",
+               g_cal_h_lo, g_cal_h_hi, g_cal_s_lo, g_cal_s_hi,
+               g_cal_v_lo, g_cal_v_hi);
+      ccol = Scalar(0, 220, 0);
+      g_calib_status_ttl--;
+    } else if (g_calib_status == CALIB_FAIL && g_calib_status_ttl > 0) {
+      snprintf(ctxt, sizeof(ctxt), "CALIBRATION FAILED - RETRY");
+      ccol = Scalar(0, 0, 255);
+      g_calib_status_ttl--;
+    } else {
+      ctxt[0] = '\0';
+    }
+
+    if (ctxt[0] != '\0') {
+      putText(debug_bgr, ctxt, Point(4, 18), FONT_HERSHEY_SIMPLEX,
+              0.40, Scalar(0, 0, 0), 3);
+      putText(debug_bgr, ctxt, Point(4, 18), FONT_HERSHEY_SIMPLEX,
+              0.40, ccol, 1);
+    }
   }
 
   /* Write back to YUV422 buffer */
