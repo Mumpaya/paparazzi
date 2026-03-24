@@ -62,6 +62,7 @@ float af8_k_yaw        = K_YAW;
 float af8_v_std        = V_STD;
 float af8_v_gate       = V_GATE;
 float af8_bottom_cam_steer_threshold = 80.0f;  /* pixels — magnitude threshold for steering */
+float af8_image_scale = 1.0f; // Add this near af8_k_yaw, etc.
 
 /* ════════════════════════════════════════════════════════════════
  * OVERLAY DRAWING  (compiled only when AF_8_V2_DRAW == 1)
@@ -214,18 +215,22 @@ static struct image_t *cv_main_cb(struct image_t *img,
 
     /* ── Convert YUV422 → BGR ────────────────────────────────── */
     cv::Mat yuv(img->h, img->w, CV_8UC2, img->buf);
+    cv::Mat bgr_full;
+    cv::cvtColor(yuv, bgr_full, cv::COLOR_YUV2BGR_YUYV);
+
+    /* ── DOWNSCALE FOR PERFORMANCE ───────────────────────────── */
     cv::Mat bgr;
-    cv::cvtColor(yuv, bgr, cv::COLOR_YUV2BGR_YUYV);
+    if (af8_image_scale < 0.99f) {
+        cv::resize(bgr_full, bgr, cv::Size(), af8_image_scale, af8_image_scale, cv::INTER_LINEAR);
+    } else {
+        bgr = bgr_full;
+    }
 
     /* ── Rotate 90° CCW (camera mounted sideways) ───────────── */
     cv::Mat rotated;
     cv::rotate(bgr, rotated, cv::ROTATE_90_COUNTERCLOCKWISE);
-
-    /* ── Resize to 50% ────────────────────────────────────── */
-    cv::Mat resized;
-    cv::resize(rotated, resized, cv::Size(rotated.cols / 2, rotated.rows / 2));
-    int rot_w = resized.cols;
-    int rot_h = resized.rows;
+    int rot_w = rotated.cols;
+    int rot_h = rotated.rows;
 
     /* ── Run detectors ──────────────────────────────────────── */
     FrameResults local;

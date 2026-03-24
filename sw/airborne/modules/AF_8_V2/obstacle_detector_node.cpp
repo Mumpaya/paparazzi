@@ -5,11 +5,11 @@
  * Stages 1-8 + fusion + gap ranking, all in OpenCV C++.
  *
  * Changes vs v5 port:
- *   - HOUGH_MIN_ASPECT lowered to 0.25 (catches wide flat panels)
- *   - Stage 7: flat-panel / large-rectangle detector (panel scores)
- *   - Stage 8: feature-desert detector (textureless column scores)
- *   - stage4_hough now exposes edges via edges_out for Stage 7 reuse
- *   - Fusion includes panel_weight and desert_weight terms
+ * - HOUGH_MIN_ASPECT lowered to 0.25 (catches wide flat panels)
+ * - Stage 7: flat-panel / large-rectangle detector (panel scores)
+ * - Stage 8: feature-desert detector (textureless column scores)
+ * - stage4_hough now exposes edges via edges_out for Stage 7 reuse
+ * - Fusion includes panel_weight and desert_weight terms
  */
 
 #include "obstacle_detector_node.h"
@@ -22,6 +22,9 @@
 #include <vector>
 #include <algorithm>
 #include <numeric>
+
+/* Global scale variable defined in cv_main.cpp */
+extern float af8_image_scale;
 
 /* ── tunable parameters ─────────────────────────────────────────── */
 static const int   N_COLS             = OBSTACLE_N_COLS;
@@ -129,12 +132,15 @@ static void stage2_3(const cv::Mat &roi_frame, float *flow_scores)
 {
     int roi_w = roi_frame.cols;
     float col_width = (float)roi_w / N_COLS;
+    
+    // Scale linear feature distance
+    double scaled_feat_dist = std::max(1.0, (double)(MIN_FEATURE_DIST * af8_image_scale));
 
     if (prev_roi.empty() || prev_pts.size() < 4) {
         roi_frame.copyTo(prev_roi);
         std::vector<cv::Point2f> corners;
         cv::goodFeaturesToTrack(roi_frame, corners, MAX_CORNERS, 0.005,
-                                MIN_FEATURE_DIST, cv::noArray(), 5);
+                                scaled_feat_dist, cv::noArray(), 5);
         prev_pts = corners;
         for (int c = 0; c < N_COLS; c++) flow_scores[c] = flow_scores_smooth[c];
         return;
@@ -158,7 +164,7 @@ static void stage2_3(const cv::Mat &roi_frame, float *flow_scores)
         roi_frame.copyTo(prev_roi);
         std::vector<cv::Point2f> corners;
         cv::goodFeaturesToTrack(roi_frame, corners, MAX_CORNERS, 0.005,
-                                MIN_FEATURE_DIST, cv::noArray(), 5);
+                                scaled_feat_dist, cv::noArray(), 5);
         prev_pts = corners;
         for (int c = 0; c < N_COLS; c++) flow_scores[c] = flow_scores_smooth[c];
         return;
@@ -201,7 +207,7 @@ static void stage2_3(const cv::Mat &roi_frame, float *flow_scores)
         (int)curr_good.size() < MAX_CORNERS / 3) {
         std::vector<cv::Point2f> corners;
         cv::goodFeaturesToTrack(roi_frame, corners, MAX_CORNERS, 0.005,
-                                MIN_FEATURE_DIST, cv::noArray(), 5);
+                                scaled_feat_dist, cv::noArray(), 5);
         prev_pts = corners;
         frame_count = 0;
     } else {
@@ -221,13 +227,20 @@ static void stage4_hough(const cv::Mat &roi_frame,
     int roi_w = roi_frame.cols;
     float col_width = (float)roi_w / N_COLS;
 
+    // Scale linear Hough parameters
+    int scaled_min_len   = std::max(1, (int)(HOUGH_MIN_LEN * af8_image_scale));
+    int scaled_max_gap   = std::max(1, (int)(HOUGH_MAX_GAP * af8_image_scale));
+    int scaled_cluster   = std::max(1, (int)(HOUGH_CLUSTER_GAP * af8_image_scale));
+    int scaled_max_box   = std::max(1, (int)(HOUGH_MAX_BOX_W * af8_image_scale));
+    int scaled_border    = (int)(HOUGH_BORDER_MARG * af8_image_scale);
+
     cv::Mat blurred;
     cv::GaussianBlur(roi_frame, blurred, cv::Size(HOUGH_BLUR_K, HOUGH_BLUR_K), 0);
     cv::Canny(blurred, edges_out, HOUGH_CANNY_LO, HOUGH_CANNY_HI);
 
     std::vector<cv::Vec4i> lines;
     cv::HoughLinesP(edges_out, lines, 1.0, CV_PI / 180.0,
-                    HOUGH_THRESHOLD, HOUGH_MIN_LEN, HOUGH_MAX_GAP);
+                    HOUGH_THRESHOLD, scaled_min_len, scaled_max_gap);
 
     struct VLine { int x1,y1,x2,y2; float mid_x; };
     std::vector<VLine> vertical;
@@ -249,7 +262,8 @@ static void stage4_hough(const cv::Mat &roi_frame,
         std::vector<std::vector<VLine>> clusters;
         std::vector<VLine> cur = {vertical[0]};
         for (size_t i = 1; i < vertical.size(); i++) {
-            if (std::fabs(vertical[i].mid_x - cur.back().mid_x) <= HOUGH_CLUSTER_GAP)
+            // Using scaled cluster gap
+            if (std::fabs(vertical[i].mid_x - cur.back().mid_x) <= scaled_cluster)
                 cur.push_back(vertical[i]);
             else { clusters.push_back(cur); cur = {vertical[i]}; }
         }
@@ -261,7 +275,8 @@ static void stage4_hough(const cv::Mat &roi_frame,
                 xmin=std::min({xmin,v.x1,v.x2}); xmax=std::max({xmax,v.x1,v.x2});
                 ymin=std::min({ymin,v.y1,v.y2}); ymax=std::max({ymax,v.y1,v.y2});
             }
-            if (xmax-xmin <= HOUGH_MAX_BOX_W) {
+            // Using scaled max box width
+            if (xmax-xmin <= scaled_max_box) {
                 raw_boxes.push_back({xmin,ymin,xmax,ymax});
             } else {
                 int xmid = (xmin+xmax)/2;
@@ -284,7 +299,10 @@ static void stage4_hough(const cv::Mat &roi_frame,
     std::vector<Box4> filtered;
     for (auto &b : raw_boxes) {
         int bw = std::max(b.x2-b.x1,1), bh = std::max(b.y2-b.y1,1);
-        if (b.x1 < HOUGH_BORDER_MARG || b.x2 > roi_w-HOUGH_BORDER_MARG) continue;
+        
+        // Using scaled border margin
+        if (b.x1 < scaled_border || b.x2 > roi_w - scaled_border) continue;
+        
         float ratio = (float)bh/bw;
         if (ratio < HOUGH_MIN_ASPECT || ratio > HOUGH_MAX_ASPECT) continue;
         int shrink=10;
@@ -322,6 +340,10 @@ static void stage5_orange(const cv::Mat &rotated, int roi_top, int roi_bottom,
     int roi_w = rotated.cols;
     float col_width = (float)roi_w / N_COLS;
     cv::Mat roi_bgr = rotated(cv::Range(roi_top,roi_bottom), cv::Range::all());
+    
+    // Scale area threshold (Scale ^ 2)
+    float scale_sq = af8_image_scale * af8_image_scale;
+    float scaled_orange_area = ORANGE_MIN_AREA * scale_sq;
 
     cv::Mat hsv, mask;
     cv::cvtColor(roi_bgr, hsv, cv::COLOR_BGR2HSV);
@@ -337,7 +359,10 @@ static void stage5_orange(const cv::Mat &rotated, int roi_top, int roi_bottom,
     *n_boxes = 0;
     for (auto &cnt : contours) {
         float area = (float)cv::contourArea(cnt);
-        if (area < ORANGE_MIN_AREA) continue;
+        
+        // Use scaled area
+        if (area < scaled_orange_area) continue;
+        
         cv::Rect br = cv::boundingRect(cnt);
         float aspect = (float)br.height / std::max(br.width,1);
         if (aspect < ORANGE_MIN_ASPECT) continue;
@@ -409,16 +434,6 @@ static void stage6_ground(const cv::Mat &rotated, int roi_top, int roi_bottom,
 
 /* ================================================================
  * Stage 7 — Flat-panel / large-rectangle detector  [NEW v6]
- *
- * Detects large quadrilateral contours (whiteboards, doors, walls)
- * by checking:
- *   1. contour area   >= PANEL_MIN_AREA
- *   2. approxPolyDP   → 4-6 vertices (rectangle / slight perspective)
- *   3. bounding-box aspect in [PANEL_MIN_ASPECT, PANEL_MAX_ASPECT]
- *   4. interior edge density < PANEL_MAX_EDGE_DENSITY  (flat face)
- *
- * Reuses the Canny edge image already produced by Stage 4 — zero
- * extra Canny cost.
  * ================================================================ */
 static void stage7_panel(const cv::Mat &roi_frame,
                          const cv::Mat &edges,
@@ -427,6 +442,10 @@ static void stage7_panel(const cv::Mat &roi_frame,
     int roi_w = roi_frame.cols;
     float col_width = (float)roi_w / N_COLS;
     for (int c = 0; c < N_COLS; c++) panel_scores[c] = 0.0f;
+    
+    // Scale area threshold (Scale ^ 2)
+    float scale_sq = af8_image_scale * af8_image_scale;
+    float scaled_panel_area = PANEL_MIN_AREA * scale_sq;
 
     /* dilate slightly to close small border gaps */
     cv::Mat dilated;
@@ -438,7 +457,9 @@ static void stage7_panel(const cv::Mat &roi_frame,
 
     for (auto &cnt : contours) {
         float area = (float)cv::contourArea(cnt);
-        if (area < PANEL_MIN_AREA) continue;
+        
+        // Use scaled area
+        if (area < scaled_panel_area) continue;
 
         double perimeter = cv::arcLength(cnt, true);
         std::vector<cv::Point> approx;
@@ -479,19 +500,18 @@ static void stage7_panel(const cv::Mat &roi_frame,
 
 /* ================================================================
  * Stage 8 — Feature-desert detector  [NEW v6]
- *
- * Counts Shi-Tomasi corners per column. Columns far below average
- * corner density are flagged as textureless (flat panel surfaces).
- * Result is Gaussian-smoothed across neighbouring columns.
  * ================================================================ */
 static void stage8_desert(const cv::Mat &roi_frame, float *desert_scores)
 {
     int roi_w = roi_frame.cols;
     float col_width = (float)roi_w / N_COLS;
+    
+    // Scale linear feature distance
+    double scaled_feat_dist = std::max(1.0, (double)(MIN_FEATURE_DIST * af8_image_scale));
 
     std::vector<cv::Point2f> corners;
     cv::goodFeaturesToTrack(roi_frame, corners, MAX_CORNERS, 0.005,
-                            MIN_FEATURE_DIST, cv::noArray(), 5);
+                            scaled_feat_dist, cv::noArray(), 5);
 
     /* per-column corner counts */
     float counts[N_COLS] = {};
@@ -571,7 +591,8 @@ static void find_gaps(const int *obstacle_cols, int n_obs,
     struct Scored { GapCandidate gc; float safety; };
     std::vector<Scored> scored;
     
-    float img_center_px = (float)roi_w / 2.0f; // True center of the image in pixels
+    // Pixel-based centrality fix to stop right-hand turning bias!
+    float img_center_px = (float)roi_w / 2.0f; 
 
     for (auto &r : runs) {
         int w_cols = r.end - r.start + 1;

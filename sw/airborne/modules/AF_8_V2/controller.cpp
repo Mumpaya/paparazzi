@@ -31,6 +31,9 @@
 #include <cstring>
 #include <algorithm>
 
+extern float af8_bottom_cam_steer_threshold;
+extern float af8_image_scale;
+
 /* ── helpers ──────────────────────────────────────────────────── */
 
 /**
@@ -126,9 +129,11 @@ ControlOutput controller_update(ControllerState *cs,
      * EDGE MODE CHECK (HIGHEST PRIORITY - CHECK FIRST)
      * ═════════════════════════════════════════════════════════ */
     
-    static float bottom_cam_steer_threshold = 55.0f;
+    // Dynamically scale the threshold set in the Ground Station XML
+    float scaled_bottom_thresh = af8_bottom_cam_steer_threshold * af8_image_scale;
+    
     bool has_bottom_cam = fr->valid && fr->bottom_cam.detected;
-    bool bottom_cam_active = has_bottom_cam && (fr->bottom_cam.magnitude > bottom_cam_steer_threshold);
+    bool bottom_cam_active = has_bottom_cam && (fr->bottom_cam.magnitude > scaled_bottom_thresh);
     
     /* Enter EDGE mode immediately if threshold exceeded */
     if (bottom_cam_active) {
