@@ -111,11 +111,14 @@ static void stage1(const cv::Mat &bgr,
                    cv::Mat &enhanced, cv::Mat &rotated,
                    int &roi_top, int &roi_bottom, cv::Mat &roi_frame)
 {
-    cv::rotate(bgr, rotated, cv::ROTATE_90_COUNTERCLOCKWISE);
+    rotated = bgr;  // already rotated by cv_main_cb    
     int h = rotated.rows;
     cv::Mat gray;
-    cv::cvtColor(rotated, gray, cv::COLOR_BGR2GRAY);
-    clahe->apply(gray, enhanced);
+    // cv::cvtColor(rotated, gray, cv::COLOR_BGR2GRAY);
+    // clahe->apply(gray, enhanced);
+
+    cv::cvtColor(rotated, enhanced, cv::COLOR_BGR2GRAY);
+
     roi_top    = (int)(h * ROI_TOP_FRAC);
     roi_bottom = (int)(h * ROI_BOTTOM_FRAC);
     roi_frame  = enhanced(cv::Range(roi_top, roi_bottom), cv::Range::all());
@@ -221,13 +224,37 @@ static void stage4_hough(const cv::Mat &roi_frame,
     int roi_w = roi_frame.cols;
     float col_width = (float)roi_w / N_COLS;
 
-    cv::Mat blurred;
-    cv::GaussianBlur(roi_frame, blurred, cv::Size(HOUGH_BLUR_K, HOUGH_BLUR_K), 0);
-    cv::Canny(blurred, edges_out, HOUGH_CANNY_LO, HOUGH_CANNY_HI);
+    // added this for optimization:
+
+    // Downsample to half res — 4x fewer pixels for Canny + Hough
+    cv::Mat small;
+    cv::resize(roi_frame, small, cv::Size(), 0.5, 0.5, cv::INTER_LINEAR);
+
+    cv::Mat blurred, edges_small;
+    cv::GaussianBlur(small, blurred, cv::Size(HOUGH_BLUR_K, HOUGH_BLUR_K), 0);
+    cv::Canny(blurred, edges_small, HOUGH_CANNY_LO, HOUGH_CANNY_HI);
+
+    // Scale edges back to full ROI size for Stage 7 reuse
+    cv::resize(edges_small, edges_out, roi_frame.size(), 0, 0, cv::INTER_NEAREST);
 
     std::vector<cv::Vec4i> lines;
-    cv::HoughLinesP(edges_out, lines, 1.0, CV_PI / 180.0,
-                    HOUGH_THRESHOLD, HOUGH_MIN_LEN, HOUGH_MAX_GAP);
+    cv::HoughLinesP(edges_small, lines, 1.0, CV_PI / 180.0,
+                    HOUGH_THRESHOLD, HOUGH_MIN_LEN / 2, HOUGH_MAX_GAP / 2);
+
+    // Scale all line coordinates back to full resolution (*2)
+    for (auto &l : lines) { l[0]*=2; l[1]*=2; l[2]*=2; l[3]*=2; }
+
+
+
+    // cv::Mat blurred;
+    // cv::GaussianBlur(roi_frame, blurred, cv::Size(HOUGH_BLUR_K, HOUGH_BLUR_K), 0);
+    // cv::Canny(blurred, edges_out, HOUGH_CANNY_LO, HOUGH_CANNY_HI);
+
+    // std::vector<cv::Vec4i> lines;
+    // cv::HoughLinesP(edges_out, lines, 1.0, CV_PI / 180.0,
+    //                 HOUGH_THRESHOLD, HOUGH_MIN_LEN, HOUGH_MAX_GAP);
+
+
 
     struct VLine { int x1,y1,x2,y2; float mid_x; };
     std::vector<VLine> vertical;
@@ -315,17 +342,27 @@ static void stage4_hough(const cv::Mat &roi_frame,
 /* ================================================================
  * Stage 5 — Orange HSV detector
  * ================================================================ */
-static void stage5_orange(const cv::Mat &rotated, int roi_top, int roi_bottom,
+
+// static void stage5_orange(const cv::Mat &rotated, int roi_top, int roi_bottom,
+//                           float *orange_scores,
+//                           PoleDetection *out_boxes, int *n_boxes)
+// {
+//     int roi_w = rotated.cols;
+//     float col_width = (float)roi_w / N_COLS;
+//     cv::Mat roi_bgr = rotated(cv::Range(roi_top,roi_bottom), cv::Range::all());
+
+//     cv::Mat hsv, mask;
+//     cv::cvtColor(roi_bgr, hsv, cv::COLOR_BGR2HSV);
+//     cv::inRange(hsv, ORANGE_HSV_LO, ORANGE_HSV_HI, mask);
+
+static void stage5_orange(const cv::Mat &roi_hsv, int roi_w,
                           float *orange_scores,
                           PoleDetection *out_boxes, int *n_boxes)
 {
-    int roi_w = rotated.cols;
     float col_width = (float)roi_w / N_COLS;
-    cv::Mat roi_bgr = rotated(cv::Range(roi_top,roi_bottom), cv::Range::all());
 
-    cv::Mat hsv, mask;
-    cv::cvtColor(roi_bgr, hsv, cv::COLOR_BGR2HSV);
-    cv::inRange(hsv, ORANGE_HSV_LO, ORANGE_HSV_HI, mask);
+    cv::Mat mask;
+    cv::inRange(roi_hsv, ORANGE_HSV_LO, ORANGE_HSV_HI, mask);
 
     cv::Mat morph_k = cv::getStructuringElement(cv::MORPH_ELLIPSE, cv::Size(5,5));
     cv::morphologyEx(mask, mask, cv::MORPH_OPEN,  morph_k);
@@ -367,16 +404,26 @@ static void stage5_orange(const cv::Mat &rotated, int roi_top, int roi_bottom,
 /* ================================================================
  * Stage 6 — Green ground mask
  * ================================================================ */
-static void stage6_ground(const cv::Mat &rotated, int roi_top, int roi_bottom,
+// static void stage6_ground(const cv::Mat &rotated, int roi_top, int roi_bottom,
+//                           float *ground_obstacle_scores)
+// {
+//     int roi_w = rotated.cols;
+//     float col_width = (float)roi_w / N_COLS;
+//     cv::Mat roi_bgr = rotated(cv::Range(roi_top,roi_bottom), cv::Range::all());
+
+//     cv::Mat hsv, green_mask;
+//     cv::cvtColor(roi_bgr, hsv, cv::COLOR_BGR2HSV);
+//     cv::inRange(hsv, GREEN_HSV_LO, GREEN_HSV_HI, green_mask);
+
+ static void stage6_ground(const cv::Mat &roi_hsv, int roi_w,
                           float *ground_obstacle_scores)
 {
-    int roi_w = rotated.cols;
     float col_width = (float)roi_w / N_COLS;
-    cv::Mat roi_bgr = rotated(cv::Range(roi_top,roi_bottom), cv::Range::all());
 
-    cv::Mat hsv, green_mask;
-    cv::cvtColor(roi_bgr, hsv, cv::COLOR_BGR2HSV);
-    cv::inRange(hsv, GREEN_HSV_LO, GREEN_HSV_HI, green_mask);
+    cv::Mat green_mask;
+    cv::inRange(roi_hsv, GREEN_HSV_LO, GREEN_HSV_HI, green_mask);
+
+
 
     cv::Mat morph_k = cv::getStructuringElement(cv::MORPH_ELLIPSE, cv::Size(7,7));
     cv::morphologyEx(green_mask, green_mask, cv::MORPH_OPEN,  morph_k);
@@ -623,6 +670,18 @@ void obstacle_detector_node_process(const uint8_t *bgr_data,
                                     ObstacleResult *out)
 {
     memset(out, 0, sizeof(*out));
+
+    static int obs_skip = 0;
+    static ObstacleResult obs_cached;
+
+    obs_skip++;
+    if (obs_skip % 2 != 0) {   // run every 2nd frame
+        *out = obs_cached;
+        out->gap_center_x = obs_cached.gap_center_x;
+        return;
+    }
+
+
     out->n_cols       = N_COLS;
     out->gap_center_x = -1;
 
@@ -633,31 +692,57 @@ void obstacle_detector_node_process(const uint8_t *bgr_data,
     int roi_top, roi_bottom;
     stage1(bgr, enhanced, rotated, roi_top, roi_bottom, roi_frame);
 
+    cv::Mat roi_bgr = rotated(cv::Range(roi_top, roi_bottom), cv::Range::all());
+    cv::Mat roi_hsv;
+    cv::cvtColor(roi_bgr, roi_hsv, cv::COLOR_BGR2HSV);  // computed ONCE
+
+
     /* Stage 2+3: optical flow */
+    /* Stage 2+3: optical flow — TEMPORARILY DISABLED FOR PROFILING */
     float flow_scores[N_COLS];
-    stage2_3(roi_frame, flow_scores);
+    for (int c = 0; c < N_COLS; c++) {
+        flow_scores[c] = 0.0f;
+    }
 
     /* Stage 4: Hough poles — also fills edges for Stage 7 */
     float hough_scores[N_COLS];
     cv::Mat hough_edges;
+    
     stage4_hough(roi_frame, hough_scores, hough_edges);
 
-    /* Stage 5: orange detection */
+    int roi_w_for_stages = rotated.cols;
     float orange_scores[N_COLS];
-    stage5_orange(rotated, roi_top, roi_bottom,
-                  orange_scores, out->orange_boxes, &out->n_orange_boxes);
+    stage5_orange(roi_hsv, roi_w_for_stages,
+                orange_scores, out->orange_boxes, &out->n_orange_boxes);
 
-    /* Stage 6: green ground */
-    float ground_obs_scores[N_COLS];
-    stage6_ground(rotated, roi_top, roi_bottom, ground_obs_scores);
+    float ground_obs_scores[N_COLS]; 
+    stage6_ground(roi_hsv, roi_w_for_stages, ground_obs_scores);
 
-    /* Stage 7: flat-panel detector — reuses hough_edges */
+
+    // /* Stage 5: orange detection */
+    // float orange_scores[N_COLS];
+    // stage5_orange(rotated, roi_top, roi_bottom,
+    //               orange_scores, out->orange_boxes, &out->n_orange_boxes);
+
+    // /* Stage 6: green ground */
+    // float ground_obs_scores[N_COLS];
+    // stage6_ground(rotated, roi_top, roi_bottom, ground_obs_scores);
+
+    // /* Stage 7: flat-panel detector — reuses hough_edges */
+    // float panel_scores[N_COLS];
+    // stage7_panel(roi_frame, hough_edges, panel_scores);
+
+    // /* Stage 8: feature-desert detector */
+    // float desert_scores[N_COLS];
+    // stage8_desert(roi_frame, desert_scores);
+
+    /* Stage 7 — DISABLED */
     float panel_scores[N_COLS];
-    stage7_panel(roi_frame, hough_edges, panel_scores);
+    for (int c = 0; c < N_COLS; c++) panel_scores[c] = 0.0f;
 
-    /* Stage 8: feature-desert detector */
+    /* Stage 8 — DISABLED */
     float desert_scores[N_COLS];
-    stage8_desert(roi_frame, desert_scores);
+    for (int c = 0; c < N_COLS; c++) desert_scores[c] = 0.0f;
 
     /* Fusion */
     float fused_raw[N_COLS];
@@ -713,4 +798,6 @@ void obstacle_detector_node_process(const uint8_t *bgr_data,
         out->flyzone[i].width_px  = out->flyzone[i].right_px - out->flyzone[i].left_px;
         out->flyzone[i].safety    = g.safety;
     }
+    
+    obs_cached = *out;
 }

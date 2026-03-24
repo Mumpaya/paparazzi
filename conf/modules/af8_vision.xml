@@ -79,6 +79,13 @@ Read these from your flight plan or guidance module:
         <dl_setting var="af8_bottom_cam_steer_threshold"
                     min="10.0" step="5.0" max="300.0"
                     shortname="bottom_cam_thresh"/>
+        <dl_setting var="t_total_cb_us"    min="0" step="1" max="999999" shortname="t_total_us"/>
+        <dl_setting var="t_ground_us"      min="0" step="1" max="999999" shortname="t_ground_us"/>
+        <dl_setting var="t_obstacle_us"    min="0" step="1" max="999999" shortname="t_obs_us"/>
+        <dl_setting var="t_gate_us"        min="0" step="1" max="999999" shortname="t_gate_us"/>
+        <dl_setting var="t_bottom_us"      min="0" step="1" max="999999" shortname="t_bot_us"/>
+        <dl_setting var="t_controller_us"  min="0" step="1" max="999999" shortname="t_ctrl_us"/>
+        <dl_setting var="t_draw_us"        min="0" step="1" max="999999" shortname="t_draw_us"/>
       </dl_settings>
     </dl_settings>
   </settings>

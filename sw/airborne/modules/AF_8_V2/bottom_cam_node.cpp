@@ -64,29 +64,41 @@ static cv::Scalar hsv_upper_not_green;
 /* ══════════════════════════════════════════════════════════════════
  * Helper: Compute non-uniformity mask (texture detection)
  * ════════════════════════════════════════════════════════════════ */
-static cv::Mat compute_non_uniform_mask(const cv::Mat &bgr, int ksize = NON_UNIFORM_KSIZE,
-                                        float thresh = NON_UNIFORM_THRESH)
+// static cv::Mat compute_non_uniform_mask(const cv::Mat &bgr, int ksize = NON_UNIFORM_KSIZE,
+//                                         float thresh = NON_UNIFORM_THRESH)
+// {
+//     /* Convert to grayscale */
+//     cv::Mat gray;
+//     cv::cvtColor(bgr, gray, cv::COLOR_BGR2GRAY);
+//     gray.convertTo(gray, CV_32F);
+
+//     /* Local mean and local variance via box filter */
+//     cv::Mat local_mean, local_sq_mean;
+//     cv::blur(gray, local_mean, cv::Size(ksize, ksize));
+//     cv::Mat gray_sq = gray.mul(gray);
+//     cv::blur(gray_sq, local_sq_mean, cv::Size(ksize, ksize));
+
+//     /* Local standard deviation */
+//     cv::Mat local_var = local_sq_mean - local_mean.mul(local_mean);
+//     cv::Mat local_std;
+//     cv::sqrt(cv::max(local_var, 0.0f), local_std);
+
+//     /* Threshold: high std → non-uniform (texture) */
+//     cv::Mat mask = (local_std > thresh);
+//     cv::Mat result;
+//     mask.convertTo(result, CV_8U, 255.0);
+//     return result;
+// }
+
+static cv::Mat compute_non_uniform_mask(const cv::Mat &bgr, float thresh = NON_UNIFORM_THRESH)
 {
-    /* Convert to grayscale */
-    cv::Mat gray;
+    cv::Mat gray, lap;
     cv::cvtColor(bgr, gray, cv::COLOR_BGR2GRAY);
-    gray.convertTo(gray, CV_32F);
-
-    /* Local mean and local variance via box filter */
-    cv::Mat local_mean, local_sq_mean;
-    cv::blur(gray, local_mean, cv::Size(ksize, ksize));
-    cv::Mat gray_sq = gray.mul(gray);
-    cv::blur(gray_sq, local_sq_mean, cv::Size(ksize, ksize));
-
-    /* Local standard deviation */
-    cv::Mat local_var = local_sq_mean - local_mean.mul(local_mean);
-    cv::Mat local_std;
-    cv::sqrt(cv::max(local_var, 0.0f), local_std);
-
-    /* Threshold: high std → non-uniform (texture) */
-    cv::Mat mask = (local_std > thresh);
+    cv::Laplacian(gray, lap, CV_16S, 3);
+    cv::Mat lap_abs;
+    cv::convertScaleAbs(lap, lap_abs);
     cv::Mat result;
-    mask.convertTo(result, CV_8U, 255.0);
+    cv::threshold(lap_abs, result, thresh, 255, cv::THRESH_BINARY);
     return result;
 }
 
@@ -116,9 +128,16 @@ void bottom_cam_node_process(const uint8_t *bgr_data, int width, int height,
     /* Wrap raw buffer into OpenCV Mat (BGR, continuous) */
     cv::Mat bgr(height, width, CV_8UC3, (uint8_t *)bgr_data);
 
+    // Downsample to half res — 4x fewer pixels for all operations
+    cv::Mat bgr_small;
+    cv::resize(bgr, bgr_small, cv::Size(), 0.5, 0.5, cv::INTER_LINEAR);
+    int proc_w = bgr_small.cols, proc_h = bgr_small.rows;
+
+
+
     /* ── Blur and convert to HSV ────────────────────────────── */
     cv::Mat blurred;
-    cv::GaussianBlur(bgr, blurred, cv::Size(BLUR_KSIZE, BLUR_KSIZE), 0);
+    cv::GaussianBlur(bgr_small, blurred, cv::Size(BLUR_KSIZE, BLUR_KSIZE), 0);
 
     cv::Mat hsv;
     cv::cvtColor(blurred, hsv, cv::COLOR_BGR2HSV);
@@ -127,19 +146,25 @@ void bottom_cam_node_process(const uint8_t *bgr_data, int width, int height,
     cv::Mat mask_green;
     cv::Mat mask_not_green;
     cv::inRange(hsv, hsv_lower_green, hsv_upper_green, mask_green);
-    cv::Mat mask_non_uniform = compute_non_uniform_mask(bgr);
+    cv::Mat mask_non_uniform = compute_non_uniform_mask(bgr_small);
     cv::inRange(hsv, hsv_lower_not_green, hsv_upper_not_green, mask_not_green);
 
     /* ── Combine masks ────────────────────────────────────────── */
     /* mask_bad = not_green AND NOT non_uniform (bad pixels) */
-    cv::Mat mask_bad = cv::Mat::zeros(height, width, CV_8U);
-    for (int i = 0; i < height * width; i++) {
-        uint8_t ng = mask_not_green.data[i];
-        uint8_t nu = mask_non_uniform.data[i];
-        if (ng > 0 && nu == 0) {
-            mask_bad.data[i] = 255;
-        }
-    }
+    // cv::Mat mask_bad = cv::Mat::zeros(height, width, CV_8U);
+    // for (int i = 0; i < height * width; i++) {
+    //     uint8_t ng = mask_not_green.data[i];
+    //     uint8_t nu = mask_non_uniform.data[i];
+    //     if (ng > 0 && nu == 0) {
+    //         mask_bad.data[i] = 255;
+    //     }
+    // }
+
+    // FAST: replace with bitwise ops
+    cv::Mat mask_uniform;
+    cv::bitwise_not(mask_non_uniform, mask_uniform);
+    cv::Mat mask_bad;
+    cv::bitwise_and(mask_not_green, mask_uniform, mask_bad);
 
     /* mask_good = (green OR non_uniform) AND NOT bad */
     cv::Mat mask_good;
@@ -148,19 +173,28 @@ void bottom_cam_node_process(const uint8_t *bgr_data, int width, int height,
 
     /* ── Compute goodness (fraction of good pixels) ────────────── */
     double good_pixels = cv::countNonZero(mask_good);
-    double total_pixels = width * height;
+    // double total_pixels = width * height;
+    double total_pixels = proc_w * proc_h;  // ← was: width * height
     float goodness = (float)(good_pixels / total_pixels);
+
 
     /* ── Compute centroid ────────────────────────────────────── */
     cv::Moments m = cv::moments(mask_good);
     int32_t cx_px = 0, cy_px = 0;
     bool has_centroid = false;
 
+    // if (m.m00 > 0) {
+    //     cx_px = (int32_t)(m.m10 / m.m00);
+    //     cy_px = (int32_t)(m.m01 / m.m00);
+    //     has_centroid = true;
+    // }
+
     if (m.m00 > 0) {
-        cx_px = (int32_t)(m.m10 / m.m00);
-        cy_px = (int32_t)(m.m01 / m.m00);
+        cx_px = (int32_t)(m.m10 / m.m00) * 2;  // ← scale back to full res
+        cy_px = (int32_t)(m.m01 / m.m00) * 2;  // ← scale back to full res
         has_centroid = true;
     }
+
 
     /* ── Compute magnitude and over_edge ─────────────────────── */
     float magnitude = 0.0f;

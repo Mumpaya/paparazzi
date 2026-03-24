@@ -45,6 +45,16 @@ extern volatile ControlOutput ctrl_output;
 void cv_main_init(void);
 void cv_main_periodic(void);
 
+/* ── cycle-time profiling (µs) — exposed as dl_settings ─────────── */
+extern volatile uint32_t t_ground_us;
+extern volatile uint32_t t_obstacle_us;
+extern volatile uint32_t t_gate_us;
+extern volatile uint32_t t_bottom_us;
+extern volatile uint32_t t_controller_us;
+extern volatile uint32_t t_draw_us;
+extern volatile uint32_t t_total_cb_us;
+
+
 #ifdef __cplusplus
 }
 #endif
