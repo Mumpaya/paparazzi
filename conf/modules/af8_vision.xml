@@ -143,7 +143,7 @@ Read these from your flight plan or guidance module:
   <file name="bottom_cam_node.cpp"/>
   <file name="controller.cpp"/>
 
-  <define name="AF_8_V2_DRAW" value="1"/>
+  <define name="AF_8_V2_DRAW" value="0"/>
 </makefile>
 
 

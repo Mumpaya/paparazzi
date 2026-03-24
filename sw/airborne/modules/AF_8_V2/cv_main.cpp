@@ -57,7 +57,7 @@ static ControllerState s_ctrl;
 static float s_heading_sp = 0.0f;
 
 /* ── datalink-tunable settings (declared in af8_vision.xml) ──────── */
-int   af8_draw_overlay = 1;
+int   af8_draw_overlay = 0;
 float af8_k_yaw        = K_YAW;
 float af8_v_std        = V_STD;
 float af8_v_gate       = V_GATE;
