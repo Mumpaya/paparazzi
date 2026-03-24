@@ -220,8 +220,12 @@ static struct image_t *cv_main_cb(struct image_t *img,
     /* ── Rotate 90° CCW (camera mounted sideways) ───────────── */
     cv::Mat rotated;
     cv::rotate(bgr, rotated, cv::ROTATE_90_COUNTERCLOCKWISE);
-    int rot_w = rotated.cols;
-    int rot_h = rotated.rows;
+
+    /* ── Resize to 50% ────────────────────────────────────── */
+    cv::Mat resized;
+    cv::resize(rotated, resized, cv::Size(rotated.cols / 2, rotated.rows / 2));
+    int rot_w = resized.cols;
+    int rot_h = resized.rows;
 
     /* ── Run detectors ──────────────────────────────────────── */
     FrameResults local;
