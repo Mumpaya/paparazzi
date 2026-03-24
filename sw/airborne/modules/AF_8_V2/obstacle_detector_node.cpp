@@ -570,6 +570,9 @@ static void find_gaps(const int *obstacle_cols, int n_obs,
 
     struct Scored { GapCandidate gc; float safety; };
     std::vector<Scored> scored;
+    
+    float img_center_px = (float)roi_w / 2.0f; // True center of the image in pixels
+
     for (auto &r : runs) {
         int w_cols = r.end - r.start + 1;
         float w_sc = (float)w_cols / N_COLS;
@@ -578,17 +581,27 @@ static void find_gaps(const int *obstacle_cols, int n_obs,
         for (int c = r.start; c <= r.end; c++) c_sum += (1.0f - fused_norm[c]);
         float c_sc = c_sum / w_cols;
 
-        float gap_centre = (r.start + r.end) * 0.5f;
-        float img_centre = (N_COLS - 1) * 0.5f;
-        float cent_sc = 1.0f - 2.0f * std::fabs(gap_centre-img_centre) / N_COLS;
+        // Calculate exact pixel center of this gap
+        float gap_left_px = r.start * col_width;
+        float gap_right_px = (r.end + 1) * col_width;
+        float gap_center_px = (gap_left_px + gap_right_px) * 0.5f;
+
+        // Calculate distance from center in pixels, normalized by half image width
+        float distance_from_center_px = std::fabs(gap_center_px - img_center_px);
+        float cent_sc = 1.0f - (distance_from_center_px / img_center_px); 
 
         float safety = clampf(GAP_W_WIDTH*w_sc + GAP_W_CLEAR*c_sc + GAP_W_CENTER*cent_sc,
                               0.0f, 1.0f);
         GapCandidate gc;
-        gc.rank=0; gc.center_x=(int)((r.start + w_cols*0.5f)*col_width);
-        gc.col_start=r.start; gc.col_end=r.end; gc.width_cols=w_cols;
-        gc.safety=safety; gc.width_score=w_sc;
-        gc.clearness_score=c_sc; gc.centrality_score=cent_sc;
+        gc.rank=0; 
+        gc.center_x=(int)gap_center_px;
+        gc.col_start=r.start; 
+        gc.col_end=r.end; 
+        gc.width_cols=w_cols;
+        gc.safety=safety; 
+        gc.width_score=w_sc;
+        gc.clearness_score=c_sc; 
+        gc.centrality_score=cent_sc;
         scored.push_back({gc, safety});
     }
 
