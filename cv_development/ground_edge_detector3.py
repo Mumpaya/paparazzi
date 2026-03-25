@@ -229,12 +229,11 @@ class GroundFlow:
         cv2.arrowedLine(out, center, avg_end, (0, 0, 255), 2, tipLength=0.3)
 
         dt = 0.1
-        alt = 1
-        vel = result.avg_flow * alt / 60 / dt
+        alt = 1.25
+        vel = (result.avg_flow / dt) *((2*np.tan(np.deg2rad(42)/2)*alt)/(240))
         vel_mag = np.linalg.norm(vel)
         cv2.putText(out, f"Avg Flow: ({result.avg_flow[0]:.1f}, {result.avg_flow[1]:.1f})", (10, 25),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1)
-        cv2.putText(out, f"Estimated Velocity: ({vel[0]:.1f}, {vel[1]:.1f})", (10, 50), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1)
-        cv2.putText(out, f"Velocity Magnitude: {vel_mag:.1f}", (10, 75), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1)
-
+        cv2.putText(out, f"vel: ({vel[0]:.1f}, {vel[1]:.1f})", (10, 50), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 1)
+        cv2.putText(out, f"mag: {vel_mag:.1f}", (10, 75), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 1)
         return out
