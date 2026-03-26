@@ -323,6 +323,7 @@ void periodic_func(void)
       if (accumulated_rotation >= TWO_FULL_ROTATIONS) {
         // Two full rotations without finding a clear path — retreat
         float retreat_heading = wrap_pi(approach_heading + (float)M_PI);
+        guidance_h_set_heading_rate(0);  // stop yaw
         guidance_h_set_heading(retreat_heading);
         retreat_cnt = 0;
         edge_state  = EDGE_RETREAT;
