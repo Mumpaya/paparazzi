@@ -53,6 +53,7 @@
   <periodic fun="periodic_func()" freq="10" autorun="TRUE"/>
 
   <makefile target="ap">
+    <define name="EDGE_DETECTOR_NO_OVERLAY" value="1"/>
     <file name="test_module.c"/>
     <file name="edge_detector.cpp"/>
     <file name="opencv_image_functions.cpp"/>

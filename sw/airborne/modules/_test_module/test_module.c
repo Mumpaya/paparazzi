@@ -37,9 +37,10 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <time.h>
+#include <math.h>
 
 #define TEST_MODULE_VERBOSE TRUE
-#define PRINT(string,...) fprintf(stderr, "[edge_avoider->%s()] " string, __FUNCTION__, ##__VA_ARGS__)
+#define PRINT(string,...) printf(stderr, "[edge_avoider->%s()] " string, __FUNCTION__, ##__VA_ARGS__)
 #if TEST_MODULE_VERBOSE
 #define VERBOSE_PRINT PRINT
 #else
@@ -92,6 +93,7 @@ enum edge_state_t {
   EDGE_OBSTACLE,
   EDGE_BACKING_UP,
   EDGE_TURNING,
+  EDGE_RETREAT,
 };
 
 static enum edge_state_t edge_state = EDGE_SAFE;  // start safe, fly forward
@@ -116,6 +118,14 @@ static float    turn_direction  = 1.f;
 static const int16_t frames_confirm_safe = 5;
 static int16_t  backup_cnt      = 0;
 static const int16_t backup_ticks = 5;  // 0.5s at 10 Hz
+
+// ── Two-full-rotation retreat logic ───────────────────────────────────────────
+static float    approach_heading     = 0.f;   // heading while flying forward (EDGE_SAFE)
+static float    prev_turn_heading    = 0.f;   // previous psi sample during turn
+static float    accumulated_rotation = 0.f;   // total |delta-psi| during EDGE_TURNING
+static const float TWO_FULL_ROTATIONS = (float)(4.0 * M_PI);  // 2 × 360°
+static int16_t  retreat_cnt          = 0;
+static const int16_t retreat_ticks   = 10;    // 1 s at 10 Hz
 
 // ── Build ObstacleConfig from GCS-tunable variables ──────────────────────────
 static struct ObstacleConfig build_obstacle_cfg(void)
@@ -197,6 +207,14 @@ void init_func(void)
   VERBOSE_PRINT("Edge-based avoider initialised (bottom camera).\n");
 }
 
+// ── Helper: normalise angle to (-π, π] ───────────────────────────────────────
+static float wrap_pi(float a)
+{
+  while (a >  (float)M_PI) a -= (float)(2.0 * M_PI);
+  while (a < -(float)M_PI) a += (float)(2.0 * M_PI);
+  return a;
+}
+
 // ── Module periodic — avoidance state machine ─────────────────────────────────
 void periodic_func(void)
 {
@@ -263,7 +281,8 @@ void periodic_func(void)
         }
         edge_state = EDGE_OBSTACLE;
       } else {
-        // Safe — fly forward
+        // Safe — fly forward; remember heading for possible retreat
+        approach_heading = stateGetNedToBodyEulers_f()->psi;
         guidance_h_set_body_vel(green_max_speed, 0);
       }
       break;
@@ -284,16 +303,45 @@ void periodic_func(void)
       if (backup_cnt >= backup_ticks) {
         // Done backing up, reset safe counter so turning waits for fresh readings
         safe_frame_cnt = 0;
+        prev_turn_heading    = stateGetNedToBodyEulers_f()->psi;
+        accumulated_rotation = 0.f;
         edge_state = EDGE_TURNING;
       }
       break;
 
-    case EDGE_TURNING:
+    case EDGE_TURNING: {
       // Stop moving, just turn in place until front is clear
       guidance_h_set_body_vel(0, 0);
       guidance_h_set_heading_rate(turn_direction * green_heading_rate);
-      if (safe_frame_cnt >= frames_confirm_safe) {
+
+      // Track cumulative rotation
+      float cur_psi = stateGetNedToBodyEulers_f()->psi;
+      float delta   = wrap_pi(cur_psi - prev_turn_heading);
+      accumulated_rotation += fabsf(delta);
+      prev_turn_heading = cur_psi;
+
+      if (accumulated_rotation >= TWO_FULL_ROTATIONS) {
+        // Two full rotations without finding a clear path — retreat
+        float retreat_heading = wrap_pi(approach_heading + (float)M_PI);
+        guidance_h_set_heading(retreat_heading);
+        retreat_cnt = 0;
+        edge_state  = EDGE_RETREAT;
+        VERBOSE_PRINT("2 full rotations — retreating on heading %.2f\n",
+                      (double)retreat_heading);
+      } else if (safe_frame_cnt >= frames_confirm_safe) {
         guidance_h_set_heading(stateGetNedToBodyEulers_f()->psi);
+        edge_state     = EDGE_SAFE;
+        safe_frame_cnt = 0;
+        danger_frame_cnt = 0;
+      }
+      break;
+    }
+
+    case EDGE_RETREAT:
+      // Fly forward along the retreat heading (opposite of approach)
+      guidance_h_set_body_vel(green_max_speed, 0);
+      retreat_cnt++;
+      if (retreat_cnt >= retreat_ticks) {
         edge_state     = EDGE_SAFE;
         safe_frame_cnt = 0;
         danger_frame_cnt = 0;

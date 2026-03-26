@@ -220,12 +220,12 @@ c.hsv_v_lo = 120;  // floor is well-lit
 c.hsv_v_hi = 255;
 
 /* morphology */
-c.morph_ksize = 7;
+c.morph_ksize = 5;
 
 
-  /* Grid: 3 columns × 3 rows covering front 2/3 */
+  /* Grid: 3 columns × 1 row covering front 2/3 */
   c.grid_cols = 3;
-  c.grid_rows = 2;
+  c.grid_rows = 1;
 
   /* Scoring weights */
   c.w_ng = 0.50f;
@@ -254,6 +254,32 @@ c.morph_ksize = 7;
 }
 
 /* ====================================================================== */
+/*  Cached structuring elements (allocated once, reused every frame)       */
+/* ====================================================================== */
+static Mat s_morph_kern;
+static int s_morph_ksize = 0;
+static Mat s_edge_kern;
+static int s_edge_ksize = 0;
+
+static Mat get_morph_kern(int ksize)
+{
+  if (ksize != s_morph_ksize || s_morph_kern.empty()) {
+    s_morph_kern = getStructuringElement(MORPH_ELLIPSE, Size(ksize, ksize));
+    s_morph_ksize = ksize;
+  }
+  return s_morph_kern;
+}
+
+static Mat get_edge_kern(int ksize)
+{
+  if (ksize != s_edge_ksize || s_edge_kern.empty()) {
+    s_edge_kern = getStructuringElement(MORPH_ELLIPSE, Size(ksize, ksize));
+    s_edge_ksize = ksize;
+  }
+  return s_edge_kern;
+}
+
+/* ====================================================================== */
 /*  EMA state – file-static, persists across frames                       */
 /* ====================================================================== */
 static float ema_score    = 0.f;
@@ -270,42 +296,49 @@ struct obstacle_result detect_obstacles(char *img, int width, int height,
   struct obstacle_result out;
   memset(&out, 0, sizeof(out));
 
-  /* ── 1. Convert YUV422 → BGR ──────────────────────────────────────── */
+  /* ── 1. Convert YUV422 → grayscale + downscale early ────────────────── */
   Mat yuv(height, width, CV_8UC2, img);
-  Mat bgr;
-  cvtColor(yuv, bgr, cv::COLOR_YUV2BGR_Y422);
 
-  /* ── 2a. BGR → HSV ─────────────────────────────────────────────────── */
-  Mat hsv;
-  cvtColor(bgr, hsv, cv::COLOR_BGR2HSV);
+  int ds_w = cfg.ds_width;
+  int ds_h = cfg.ds_height;
+  float sx = (float)width  / (float)ds_w;
+  float sy = (float)height / (float)ds_h;
 
+  /* Grayscale at full res, then downscale */
+  Mat gray;
+  cvtColor(yuv, gray, cv::COLOR_YUV2GRAY_Y422);
+  Mat gray_ds;
+  resize(gray, gray_ds, Size(ds_w, ds_h), 0, 0, INTER_AREA);
+
+  /* BGR + HSV at downscaled resolution (major speedup) */
+  Mat bgr_full, bgr_ds, hsv_ds;
+  cvtColor(yuv, bgr_full, cv::COLOR_YUV2BGR_Y422);
+  resize(bgr_full, bgr_ds, Size(ds_w, ds_h), 0, 0, INTER_AREA);
+  cvtColor(bgr_ds, hsv_ds, cv::COLOR_BGR2HSV);
+
+  /* ── Calibration sampling (on downscaled HSV) ─────────────────────── */
   if (g_calib_active) {
-    int x0 = (width * 25) / 100;
-    int x1 = (width * 75) / 100;
-    int y0 = (height * 55) / 100;
-    int y1 = (height * 95) / 100;
+    int x0 = (ds_w * 25) / 100;
+    int x1 = (ds_w * 75) / 100;
+    int y0 = (ds_h * 55) / 100;
+    int y1 = (ds_h * 95) / 100;
+    x0 = max(0, min(x0, ds_w - 1));
+    x1 = max(x0 + 1, min(x1, ds_w));
+    y0 = max(0, min(y0, ds_h - 1));
+    y1 = max(y0 + 1, min(y1, ds_h));
 
-    x0 = max(0, min(x0, width - 1));
-    x1 = max(x0 + 1, min(x1, width));
-    y0 = max(0, min(y0, height - 1));
-    y1 = max(y0 + 1, min(y1, height));
-
-    for (int r = y0; r < y1; r += 2) {
-      const Vec3b *ph = hsv.ptr<Vec3b>(r);
-      for (int c = x0; c < x1; c += 2) {
-        int h = ph[c][0];
-        int s = ph[c][1];
-        int v = ph[c][2];
-        h = max(0, min(h, 180));
-        s = max(0, min(s, 255));
-        v = max(0, min(v, 255));
+    for (int r = y0; r < y1; r++) {
+      const Vec3b *ph = hsv_ds.ptr<Vec3b>(r);
+      for (int c = x0; c < x1; c++) {
+        int h = max(0, min((int)ph[c][0], 180));
+        int s = max(0, min((int)ph[c][1], 255));
+        int v = max(0, min((int)ph[c][2], 255));
         g_hist_h[h]++;
         g_hist_s[s]++;
         g_hist_v[v]++;
         g_calib_samples++;
       }
     }
-
     g_calib_frames++;
     if (g_calib_frames >= g_calib_target_frames) {
       if (g_calib_samples < 500) {
@@ -318,223 +351,176 @@ struct obstacle_result detect_obstacles(char *img, int width, int height,
         int s90 = hist_percentile(g_hist_s, 256, g_calib_samples, 0.90f);
         int v10 = hist_percentile(g_hist_v, 256, g_calib_samples, 0.10f);
         int v90 = hist_percentile(g_hist_v, 256, g_calib_samples, 0.90f);
-
-        g_cal_h_lo = max(0, h10 - 6);
-        g_cal_h_hi = min(180, h90 + 6);
-        g_cal_s_lo = max(0, s10 - 18);
-        g_cal_s_hi = min(255, s90 + 18);
-        g_cal_v_lo = max(0, v10 - 18);
-        g_cal_v_hi = min(255, v90 + 18);
-
+        g_cal_h_lo = max(0, h10 - 6);  g_cal_h_hi = min(180, h90 + 6);
+        g_cal_s_lo = max(0, s10 - 18); g_cal_s_hi = min(255, s90 + 18);
+        g_cal_v_lo = max(0, v10 - 18); g_cal_v_hi = min(255, v90 + 18);
         enforce_span(&g_cal_h_lo, &g_cal_h_hi, 12, 0, 180);
         enforce_span(&g_cal_s_lo, &g_cal_s_hi, 30, 0, 255);
         enforce_span(&g_cal_v_lo, &g_cal_v_hi, 35, 0, 255);
-
         g_calib_pending = true;
         g_calib_status = CALIB_OK;
         g_calib_status_ttl = 160;
       }
-
       g_calib_active = false;
     }
   }
 
-  /* ── 3. Green mask: HSV in-range ───────────────────────────────────── */
-  Mat green_mask;
-  inRange(hsv,
+  /* ── 3. Green mask at downscaled resolution ────────────────────────── */
+  Mat green_mask_ds;
+  inRange(hsv_ds,
           Scalar(cfg.hsv_h_lo, cfg.hsv_s_lo, cfg.hsv_v_lo),
           Scalar(cfg.hsv_h_hi, cfg.hsv_s_hi, cfg.hsv_v_hi),
-          green_mask);
+          green_mask_ds);
 
-  /* Morphology: open then close */
-  Mat kern = getStructuringElement(MORPH_ELLIPSE,
-                                   Size(cfg.morph_ksize, cfg.morph_ksize));
-  morphologyEx(green_mask, green_mask, MORPH_OPEN,  kern);
-  morphologyEx(green_mask, green_mask, MORPH_CLOSE, kern);
+  /* Morphology with cached kernel */
+  Mat kern = get_morph_kern(cfg.morph_ksize);
+  morphologyEx(green_mask_ds, green_mask_ds, MORPH_OPEN,  kern);
+  morphologyEx(green_mask_ds, green_mask_ds, MORPH_CLOSE, kern);
 
-  /* Remove tiny components */
+  /* Remove tiny components (at ds resolution, scale threshold) */
   if (cfg.min_contour_area > 0) {
+    float area_scale = sx * sy;
+    double min_area_ds = (double)cfg.min_contour_area / area_scale;
     vector<vector<Point>> contours;
-    findContours(green_mask.clone(), contours, RETR_EXTERNAL,
+    findContours(green_mask_ds.clone(), contours, RETR_EXTERNAL,
                  CHAIN_APPROX_SIMPLE);
-    green_mask.setTo(0);
+    green_mask_ds.setTo(0);
     for (size_t i = 0; i < contours.size(); i++) {
-      if (contourArea(contours[i]) >= cfg.min_contour_area) {
-        drawContours(green_mask, contours, (int)i, Scalar(255), FILLED);
+      if (contourArea(contours[i]) >= min_area_ds) {
+        drawContours(green_mask_ds, contours, (int)i, Scalar(255), FILLED);
       }
     }
   }
 
-  /* Green ratio over full image */
-  int total_pixels = width * height;
-  int green_pixels = countNonZero(green_mask);
-  float green_ratio = (float)green_pixels / (float)total_pixels;
+  /* Green ratio */
+  int total_ds = ds_w * ds_h;
+  int green_ds = countNonZero(green_mask_ds);
+  float green_ratio = (float)green_ds / (float)total_ds;
 
-  /* ── 4. Non-green mask ─────────────────────────────────────────────── */
-  Mat non_green;
-  bitwise_not(green_mask, non_green);
-
-  /* ── 5. Downscaled Canny + Hough ───────────────────────────────────── */
-  Mat gray;
-  cvtColor(yuv, gray, cv::COLOR_YUV2GRAY_Y422);
-
-  int ds_w = cfg.ds_width;
-  int ds_h = cfg.ds_height;
+  /* ── 4. Non-green mask (ds) ────────────────────────────────────────── */
   Mat non_green_ds;
-  resize(non_green, non_green_ds, Size(ds_w, ds_h), 0, 0, INTER_NEAREST);
+  bitwise_not(green_mask_ds, non_green_ds);
 
-  Mat gray_ds;
-  resize(gray, gray_ds, Size(ds_w, ds_h), 0, 0, INTER_AREA);
+  /* ── 5. Canny + Hough (already at ds resolution) ───────────────────── */
   GaussianBlur(gray_ds, gray_ds, Size(5, 5), 1.5);
-
   Mat edges_ds;
   Canny(gray_ds, edges_ds, canny_low, canny_high);
-
-  /* Keep edge evidence mostly where floor segmentation says "not green". */
   bitwise_and(edges_ds, non_green_ds, edges_ds);
 
   if (cfg.edge_open_ksize >= 3) {
-    Mat edge_kern = getStructuringElement(MORPH_ELLIPSE,
-                                          Size(cfg.edge_open_ksize,
-                                               cfg.edge_open_ksize));
-    morphologyEx(edges_ds, edges_ds, MORPH_OPEN, edge_kern);
+    Mat ekern = get_edge_kern(cfg.edge_open_ksize);
+    morphologyEx(edges_ds, edges_ds, MORPH_OPEN, ekern);
   }
 
   vector<Vec4i> raw_lines;
-  vector<Vec4i> lines;
   HoughLinesP(edges_ds, raw_lines, 1, CV_PI / 180, 30, 15, 8);
 
-  /* Scale factors from downscaled coords to full-res */
-  float sx = (float)width  / (float)ds_w;
-  float sy = (float)height / (float)ds_h;
-
-  /* Reject tiny line fragments that are usually texture noise. */
+  /* Pre-scale all line endpoints to full-res ONCE */
+  struct ScaledLine { float x1, y1, x2, y2, mx, my, len; };
+  vector<ScaledLine> lines;
+  lines.reserve(raw_lines.size());
   for (size_t i = 0; i < raw_lines.size(); i++) {
-    float x1 = raw_lines[i][0] * sx;
-    float y1 = raw_lines[i][1] * sy;
-    float x2 = raw_lines[i][2] * sx;
-    float y2 = raw_lines[i][3] * sy;
-    float len = sqrtf((x2 - x1) * (x2 - x1) + (y2 - y1) * (y2 - y1));
-    if (len >= (float)cfg.min_line_len_px) {
-      lines.push_back(raw_lines[i]);
+    ScaledLine sl;
+    sl.x1 = raw_lines[i][0] * sx;  sl.y1 = raw_lines[i][1] * sy;
+    sl.x2 = raw_lines[i][2] * sx;  sl.y2 = raw_lines[i][3] * sy;
+    sl.mx = (sl.x1 + sl.x2) * 0.5f;
+    sl.my = (sl.y1 + sl.y2) * 0.5f;
+    sl.len = sqrtf((sl.x2 - sl.x1) * (sl.x2 - sl.x1) +
+                   (sl.y2 - sl.y1) * (sl.y2 - sl.y1));
+    if (sl.len >= (float)cfg.min_line_len_px) {
+      lines.push_back(sl);
     }
   }
 
-  /* ── 5b. Legacy line metrics (full-res coords) ────────────────────── */
+  /* ── 5b. Legacy line metrics ───────────────────────────────────────── */
   int half_h = height / 2;
   int mid_x  = width  / 2;
   float front_total = 0.f, front_left = 0.f, front_right = 0.f, longest = 0.f;
   int front_count = 0;
-
   for (size_t i = 0; i < lines.size(); i++) {
-    float x1 = lines[i][0] * sx, y1 = lines[i][1] * sy;
-    float x2 = lines[i][2] * sx, y2 = lines[i][3] * sy;
-    float mx = (x1 + x2) * 0.5f;
-    float my = (y1 + y2) * 0.5f;
-    if (my < (float)half_h) {
-      float len = sqrtf((x2 - x1) * (x2 - x1) + (y2 - y1) * (y2 - y1));
-      front_total += len;
+    if (lines[i].my < (float)half_h) {
+      front_total += lines[i].len;
       front_count++;
-      if (mx < (float)mid_x) front_left  += len;
-      else                    front_right += len;
-      if (len > longest) longest = len;
+      if (lines[i].mx < (float)mid_x) front_left  += lines[i].len;
+      else                              front_right += lines[i].len;
+      if (lines[i].len > longest) longest = lines[i].len;
     }
   }
+  out.front_line_total       = front_total;
+  out.front_left_line_length = front_left;
+  out.front_right_line_length= front_right;
+  out.longest_line           = longest;
+  out.line_count             = front_count;
+  out.green_ratio            = green_ratio;
 
-  out.front_line_total         = front_total;
-  out.front_left_line_length   = front_left;
-  out.front_right_line_length  = front_right;
-  out.longest_line             = longest;
-  out.line_count               = front_count;
-  out.green_ratio              = green_ratio;
-
-  /* ── 6. Grid features (front half) ────────────────────────────────── */
-  /* Upscale the edge image to full res for grid analysis */
-  Mat edges_full;
-  resize(edges_ds, edges_full, Size(width, height), 0, 0, INTER_NEAREST);
-
-  int front_h = (height * 2) / 3;  // front 2/3 = rows [0, 2h/3)
-  int cell_w  = width   / cfg.grid_cols;
-  int cell_h  = front_h / cfg.grid_rows;
+  /* ── 6. Grid features (at downscaled resolution) ───────────────────── */
+  int ds_front_h = (ds_h * 1) / 3;
+  int cell_w  = ds_w    / cfg.grid_cols;
+  int cell_h  = ds_front_h / cfg.grid_rows;
+  /* Full-res front_h for line mapping */
+  int front_h = (height * 1) / 3;
 
   float max_score_cell  = 0.f;
-  float mean_score_sum  = 0.f;
-  float mean_score_wsum = 0.f;
-  float score_cx_sum    = 0.f;
-  float score_weight_sum = 0.f;
-
-  /* Diagonal of the front half for line-length normalisation */
+  float mean_score_sum  = 0.f, mean_score_wsum = 0.f;
+  float score_cx_sum    = 0.f, score_weight_sum = 0.f;
   float diag = sqrtf((float)(width * width + front_h * front_h));
 
-  /* Store per-cell info for debug overlay */
-  const int MAX_CELLS = 16;  // grid_rows * grid_cols must be <= 16
-  Rect  cell_rois[MAX_CELLS];
+  const int MAX_CELLS = 16;
+  Rect  cell_rois_full[MAX_CELLS];
   float cell_scores[MAX_CELLS];
   int   n_cells = 0;
 
   for (int gr = 0; gr < cfg.grid_rows; gr++) {
-    /* Nearer rows (bottom of front half) get higher importance */
-    float row_weight = 1.0f + 0.5f * (float)gr;  // row 0 (top) = 1.0, row 1 = 1.5
-
+    float row_weight = 1.0f + 0.5f * (float)gr;
     for (int gc = 0; gc < cfg.grid_cols; gc++) {
-      int x0 = gc * cell_w;
-      int y0 = gr * cell_h;
-      int x1 = (gc == cfg.grid_cols - 1) ? width   : (gc + 1) * cell_w;
-      int y1 = (gr == cfg.grid_rows - 1) ? front_h : (gr + 1) * cell_h;
-
-      Rect roi(x0, y0, x1 - x0, y1 - y0);
-      int cell_area = roi.width * roi.height;
+      /* DS-space ROI */
+      int dx0 = gc * cell_w;
+      int dy0 = gr * cell_h;
+      int dx1 = (gc == cfg.grid_cols - 1) ? ds_w      : (gc + 1) * cell_w;
+      int dy1 = (gr == cfg.grid_rows - 1) ? ds_front_h : (gr + 1) * cell_h;
+      Rect ds_roi(dx0, dy0, dx1 - dx0, dy1 - dy0);
+      int cell_area = ds_roi.width * ds_roi.height;
       if (cell_area <= 0) continue;
 
-      /* Green ratio in cell */
-      int green_in_cell = countNonZero(green_mask(roi));
-      float cell_green  = (float)green_in_cell / (float)cell_area;
+      /* Full-res ROI for overlay and line matching */
+      int fx0 = (int)(dx0 * sx), fy0 = (int)(dy0 * sy);
+      int fx1 = (int)(dx1 * sx), fy1 = (int)(dy1 * sy);
+
+      float cell_green = (float)countNonZero(green_mask_ds(ds_roi)) / (float)cell_area;
       float non_green_area = 1.f - cell_green;
+      float edge_density = (float)countNonZero(edges_ds(ds_roi)) / (float)cell_area;
 
-      /* Edge density in cell */
-      int edge_in_cell = countNonZero(edges_full(roi));
-      float edge_density = (float)edge_in_cell / (float)cell_area;
-
-      /* Max line length in this cell (normalised) */
+      /* Max line length in this cell (using pre-scaled endpoints) */
       float max_ll = 0.f;
       for (size_t li = 0; li < lines.size(); li++) {
-        float lx1 = lines[li][0] * sx, ly1 = lines[li][1] * sy;
-        float lx2 = lines[li][2] * sx, ly2 = lines[li][3] * sy;
-        float lmx = (lx1 + lx2) * 0.5f;
-        float lmy = (ly1 + ly2) * 0.5f;
-        if (lmx >= x0 && lmx < x1 && lmy >= y0 && lmy < y1) {
-          float ll = sqrtf((lx2 - lx1) * (lx2 - lx1) + (ly2 - ly1) * (ly2 - ly1));
-          if (ll > max_ll) max_ll = ll;
+        if (lines[li].mx >= fx0 && lines[li].mx < fx1 &&
+            lines[li].my >= fy0 && lines[li].my < fy1) {
+          if (lines[li].len > max_ll) max_ll = lines[li].len;
         }
       }
       float max_line_norm = clampf(max_ll / diag, 0.f, 1.f);
 
-      /* Edges and short lines inside mostly-green cells are often noise. */
+      /* Gate edge/line evidence on non-green fraction */
       float ev_scale = 1.f;
-      if (non_green_area < cfg.min_non_green_for_edges && cfg.min_non_green_for_edges > 1e-6f) {
+      if (non_green_area < cfg.min_non_green_for_edges && cfg.min_non_green_for_edges > 1e-6f)
         ev_scale = non_green_area / cfg.min_non_green_for_edges;
-      }
       ev_scale = clampf(ev_scale, 0.f, 1.f);
-      edge_density *= ev_scale;
+      edge_density  *= ev_scale;
       max_line_norm *= ev_scale;
 
-      /* Per-cell score */
       float sc = clampf(cfg.w_ng * non_green_area +
                          cfg.w_ed * edge_density +
                          cfg.w_ll * max_line_norm, 0.f, 1.f);
 
       if (n_cells < MAX_CELLS) {
-        cell_rois[n_cells]   = roi;
+        cell_rois_full[n_cells] = Rect(fx0, fy0, fx1 - fx0, fy1 - fy0);
         cell_scores[n_cells] = sc;
         n_cells++;
       }
-
       if (sc > max_score_cell) max_score_cell = sc;
       mean_score_sum += sc * row_weight;
       mean_score_wsum += row_weight;
-
-      /* Weighted centroid: cell centre-x in [-1, 1] */
-      float cell_cx = ((float)(x0 + x1) * 0.5f / (float)width) * 2.f - 1.f;
+      float cell_cx = ((float)(fx0 + fx1) * 0.5f / (float)width) * 2.f - 1.f;
       score_cx_sum    += sc * row_weight * cell_cx;
       score_weight_sum += sc * row_weight;
     }
@@ -542,17 +528,14 @@ struct obstacle_result detect_obstacles(char *img, int width, int height,
 
   /* ── 7. Aggregate global score & centroid ──────────────────────────── */
   float mean_score = (mean_score_wsum > 1e-6f) ? (mean_score_sum / mean_score_wsum) : 0.f;
-  /* Blend peak danger with global consistency to avoid one-cell spikes. */
   float raw_score = clampf(0.65f * max_score_cell + 0.35f * mean_score, 0.f, 1.f);
-  float raw_cx    = (score_weight_sum > 1e-6f)
-                      ? (score_cx_sum / score_weight_sum)
-                      : 0.f;
+  float raw_cx    = (score_weight_sum > 1e-6f) ? (score_cx_sum / score_weight_sum) : 0.f;
   raw_cx = clampf(raw_cx, -1.f, 1.f);
 
-  /* Non-green area fraction in front half */
-  Rect front_roi(0, 0, width, front_h);
-  int ng_front = front_roi.area() - countNonZero(green_mask(front_roi));
-  float obstacle_size = (float)ng_front / (float)front_roi.area();
+  /* Non-green area fraction in front half (ds) */
+  Rect ds_front_roi(0, 0, ds_w, ds_front_h);
+  int ng_front = ds_front_roi.area() - countNonZero(green_mask_ds(ds_front_roi));
+  float obstacle_size = (float)ng_front / (float)ds_front_roi.area();
 
   /* ── 8. EMA smoothing ─────────────────────────────────────────────── */
   float alpha = cfg.ema_alpha;
@@ -564,41 +547,32 @@ struct obstacle_result detect_obstacles(char *img, int width, int height,
     ema_score    = alpha * raw_score + (1.f - alpha) * ema_score;
     ema_centroid = alpha * raw_cx    + (1.f - alpha) * ema_centroid;
   }
-
   out.obstacle_score      = ema_score;
   out.obstacle_centroid_x = ema_centroid;
   out.obstacle_size       = obstacle_size;
 
-  /* ── 9. Debug overlay → write back to YUV422 buffer ────────────────── */
-  /*
-   * Overlay layers (back to front):
-   *   a) Dimmed original image as background
-   *   b) Bright green tint on detected floor pixels
-   *   c) Red/magenta tint on non-green (obstacle) pixels in front half
-   *   d) Non-green contour outlines in magenta
-   *   e) Canny edges in red
-   *   f) Hough line segments in cyan
-   *   g) Grid overlay with per-cell score colour coding
-   *   h) Obstacle centroid crosshair in yellow
-   *   i) Front-half boundary line
-   *   j) Text HUD: score, centroid, green_ratio, obstacle_size, lines
-   */
-  Mat debug_bgr;
+  /* ── 9. Debug overlay (skipped on AP builds for speed) ───────────────── */
+#ifndef EDGE_DETECTOR_NO_OVERLAY
+  {
+  /* Upscale masks to full-res only for drawing */
+  Mat green_mask, non_green, edges_full;
+  resize(green_mask_ds, green_mask, Size(width, height), 0, 0, INTER_NEAREST);
+  resize(non_green_ds,  non_green,  Size(width, height), 0, 0, INTER_NEAREST);
+  resize(edges_ds,      edges_full, Size(width, height), 0, 0, INTER_NEAREST);
 
-  /* (a) Dim the original to 40% so overlays pop */
-  debug_bgr = bgr * 0.4;
+  Mat debug_bgr;
+  debug_bgr = bgr_full * 0.4;
 
   /* (b) Bright green tint on detected floor */
   for (int r = 0; r < height; r++) {
     const uchar *pm = green_mask.ptr<uchar>(r);
-    const uchar *po = bgr.ptr<uchar>(r);
+    const uchar *po = bgr_full.ptr<uchar>(r);
     uchar *pd = debug_bgr.ptr<uchar>(r);
     for (int c = 0; c < width; c++) {
       if (pm[c]) {
-        /* Blend: 50% original + 50% bright green tint */
-        pd[3*c+0] = (uchar)(po[3*c+0] * 0.3f);          // B – suppress
-        pd[3*c+1] = (uchar)min(255, (int)(po[3*c+1] * 0.5f + 128)); // G – boost
-        pd[3*c+2] = (uchar)(po[3*c+2] * 0.3f);          // R – suppress
+        pd[3*c+0] = (uchar)(po[3*c+0] * 0.3f);
+        pd[3*c+1] = (uchar)min(255, (int)(po[3*c+1] * 0.5f + 128));
+        pd[3*c+2] = (uchar)(po[3*c+2] * 0.3f);
       }
     }
   }
@@ -606,13 +580,13 @@ struct obstacle_result detect_obstacles(char *img, int width, int height,
   /* (c) Red/magenta tint on non-green areas in front half */
   for (int r = 0; r < front_h; r++) {
     const uchar *pm = non_green.ptr<uchar>(r);
-    const uchar *po = bgr.ptr<uchar>(r);
+    const uchar *po = bgr_full.ptr<uchar>(r);
     uchar *pd = debug_bgr.ptr<uchar>(r);
     for (int c = 0; c < width; c++) {
       if (pm[c]) {
         pd[3*c+0] = (uchar)(po[3*c+0] * 0.3f);
         pd[3*c+1] = (uchar)(po[3*c+1] * 0.2f);
-        pd[3*c+2] = (uchar)min(255, (int)(po[3*c+2] * 0.4f + 100)); // R tint
+        pd[3*c+2] = (uchar)min(255, (int)(po[3*c+2] * 0.4f + 100));
       }
     }
   }
@@ -630,127 +604,101 @@ struct obstacle_result detect_obstacles(char *img, int width, int height,
     uchar *pd = debug_bgr.ptr<uchar>(r);
     for (int c = 0; c < width; c++) {
       if (pe[c]) {
-        pd[3*c+0] = 30;   // B
-        pd[3*c+1] = 30;   // G
-        pd[3*c+2] = 255;  // R
+        pd[3*c+0] = 30;
+        pd[3*c+1] = 30;
+        pd[3*c+2] = 255;
       }
     }
   }
 
   /* (f) Hough line segments in cyan */
   for (size_t li = 0; li < lines.size(); li++) {
-    Point p1((int)(lines[li][0] * sx), (int)(lines[li][1] * sy));
-    Point p2((int)(lines[li][2] * sx), (int)(lines[li][3] * sy));
-    line(debug_bgr, p1, p2, Scalar(255, 255, 0), 1, LINE_AA);  // cyan
+    Point p1((int)lines[li].x1, (int)lines[li].y1);
+    Point p2((int)lines[li].x2, (int)lines[li].y2);
+    cv::line(debug_bgr, p1, p2, Scalar(255, 255, 0), 1, LINE_AA);
   }
 
-  /* (g) Grid overlay – cells coloured by score (green→yellow→red) */
+  /* (g) Grid overlay – cells coloured by score */
   for (int ci = 0; ci < n_cells; ci++) {
-    Rect roi = cell_rois[ci];
+    Rect roi = cell_rois_full[ci];
     float sc = cell_scores[ci];
-
-    /* Colour: green (safe) → yellow → red (danger) */
     int rb = (int)(sc * 255.f);
     int gb = (int)((1.f - sc) * 255.f);
     Scalar cell_color(0, gb, rb);
-
-    /* Semi-transparent fill: blend 25% colour over current content */
     Mat cell_region = debug_bgr(roi);
     Mat tint(roi.height, roi.width, CV_8UC3, cell_color);
     addWeighted(cell_region, 0.75, tint, 0.25, 0, cell_region);
-
-    /* Cell border */
     rectangle(debug_bgr, roi, Scalar(200, 200, 200), 1);
-
-    /* Per-cell score label */
     char sc_txt[16];
     snprintf(sc_txt, sizeof(sc_txt), "%.2f", sc);
-    int txt_x = roi.x + 2;
-    int txt_y = roi.y + 12;
-    putText(debug_bgr, sc_txt, Point(txt_x, txt_y),
-            FONT_HERSHEY_SIMPLEX, 0.35, Scalar(0, 0, 0), 2);  // shadow
-    putText(debug_bgr, sc_txt, Point(txt_x, txt_y),
+    putText(debug_bgr, sc_txt, Point(roi.x + 2, roi.y + 12),
+            FONT_HERSHEY_SIMPLEX, 0.35, Scalar(0, 0, 0), 2);
+    putText(debug_bgr, sc_txt, Point(roi.x + 2, roi.y + 12),
             FONT_HERSHEY_SIMPLEX, 0.35, Scalar(255, 255, 255), 1);
   }
 
-  /* (h) Obstacle centroid crosshair in yellow */
+  /* (h) Obstacle centroid crosshair */
   int cx_px = (int)(((ema_centroid + 1.f) * 0.5f) * (float)width);
   cx_px = max(0, min(cx_px, width - 1));
   int cy_px = front_h / 2;
-  /* Crosshair lines */
-  line(debug_bgr, Point(cx_px - 15, cy_px), Point(cx_px + 15, cy_px),
-       Scalar(0, 255, 255), 2);
-  line(debug_bgr, Point(cx_px, cy_px - 15), Point(cx_px, cy_px + 15),
-       Scalar(0, 255, 255), 2);
+  cv::line(debug_bgr, Point(cx_px - 15, cy_px), Point(cx_px + 15, cy_px), Scalar(0, 255, 255), 2);
+  cv::line(debug_bgr, Point(cx_px, cy_px - 15), Point(cx_px, cy_px + 15), Scalar(0, 255, 255), 2);
   circle(debug_bgr, Point(cx_px, cy_px), 12, Scalar(0, 255, 255), 2);
 
-  /* (i) Front-half boundary – dashed(ish) white line */
+  /* (i) Front-half boundary */
   for (int c = 0; c < width; c += 8) {
     int end_c = min(c + 4, width);
-    line(debug_bgr, Point(c, front_h), Point(end_c, front_h),
-         Scalar(255, 255, 255), 1);
+    cv::line(debug_bgr, Point(c, front_h), Point(end_c, front_h), Scalar(255, 255, 255), 1);
   }
 
   /* (j) Text HUD */
   char txt[128];
-  Scalar hud_fg(255, 255, 255);
-  Scalar hud_bg(0, 0, 0);
+  Scalar hud_fg(255, 255, 255), hud_bg(0, 0, 0);
   int y_txt = height - 8;
-
-  snprintf(txt, sizeof(txt), "SCORE %.2f  CX %.2f  SIZE %.2f",
-           ema_score, ema_centroid, obstacle_size);
+  snprintf(txt, sizeof(txt), "SCORE %.2f  CX %.2f  SIZE %.2f", ema_score, ema_centroid, obstacle_size);
   putText(debug_bgr, txt, Point(4, y_txt), FONT_HERSHEY_SIMPLEX, 0.38, hud_bg, 2);
   putText(debug_bgr, txt, Point(4, y_txt), FONT_HERSHEY_SIMPLEX, 0.38, hud_fg, 1);
-
   y_txt -= 14;
-  snprintf(txt, sizeof(txt), "GREEN %.0f%%  LINES %d  LONGEST %.0f",
-           green_ratio * 100.f, front_count, longest);
+  snprintf(txt, sizeof(txt), "GREEN %.0f%%  LINES %d  LONGEST %.0f", green_ratio * 100.f, front_count, longest);
   putText(debug_bgr, txt, Point(4, y_txt), FONT_HERSHEY_SIMPLEX, 0.38, hud_bg, 2);
   putText(debug_bgr, txt, Point(4, y_txt), FONT_HERSHEY_SIMPLEX, 0.38, hud_fg, 1);
 
-  /* Danger/safe indicator in top-right */
+  /* Danger/safe indicator */
   {
     const char *status = (ema_score > cfg.score_threshold) ? "DANGER" : "SAFE";
-    Scalar scolor = (ema_score > cfg.score_threshold)
-                      ? Scalar(0, 0, 255) : Scalar(0, 200, 0);
-    putText(debug_bgr, status, Point(width - 75, 18),
-            FONT_HERSHEY_SIMPLEX, 0.55, Scalar(0, 0, 0), 3);
-    putText(debug_bgr, status, Point(width - 75, 18),
-            FONT_HERSHEY_SIMPLEX, 0.55, scolor, 2);
+    Scalar scolor = (ema_score > cfg.score_threshold) ? Scalar(0, 0, 255) : Scalar(0, 200, 0);
+    putText(debug_bgr, status, Point(width - 75, 18), FONT_HERSHEY_SIMPLEX, 0.55, Scalar(0, 0, 0), 3);
+    putText(debug_bgr, status, Point(width - 75, 18), FONT_HERSHEY_SIMPLEX, 0.55, scolor, 2);
   }
 
-  /* Ground-calibration status in top-left */
+  /* Ground-calibration status */
   {
     char ctxt[96];
     Scalar ccol(255, 255, 255);
     if (g_calib_active) {
-      snprintf(ctxt, sizeof(ctxt), "CALIBRATING FLOOR %d/%d",
-               g_calib_frames, g_calib_target_frames);
+      snprintf(ctxt, sizeof(ctxt), "CALIBRATING FLOOR %d/%d", g_calib_frames, g_calib_target_frames);
       ccol = Scalar(0, 255, 255);
     } else if (g_calib_status == CALIB_OK && g_calib_status_ttl > 0) {
-      snprintf(ctxt, sizeof(ctxt), "CALIBRATED H[%d..%d] S[%d..%d] V[%d..%d]",
-               g_cal_h_lo, g_cal_h_hi, g_cal_s_lo, g_cal_s_hi,
-               g_cal_v_lo, g_cal_v_hi);
+      printf(ctxt, sizeof(ctxt), "CALIBRATED H[%d..%d] S[%d..%d] V[%d..%d]",
+               g_cal_h_lo, g_cal_h_hi, g_cal_s_lo, g_cal_s_hi, g_cal_v_lo, g_cal_v_hi);
       ccol = Scalar(0, 220, 0);
       g_calib_status_ttl--;
     } else if (g_calib_status == CALIB_FAIL && g_calib_status_ttl > 0) {
-      snprintf(ctxt, sizeof(ctxt), "CALIBRATION FAILED - RETRY");
+      printf(ctxt, sizeof(ctxt), "CALIBRATION FAILED - RETRY");
       ccol = Scalar(0, 0, 255);
       g_calib_status_ttl--;
     } else {
       ctxt[0] = '\0';
     }
-
     if (ctxt[0] != '\0') {
-      putText(debug_bgr, ctxt, Point(4, 18), FONT_HERSHEY_SIMPLEX,
-              0.40, Scalar(0, 0, 0), 3);
-      putText(debug_bgr, ctxt, Point(4, 18), FONT_HERSHEY_SIMPLEX,
-              0.40, ccol, 1);
+      putText(debug_bgr, ctxt, Point(4, 18), FONT_HERSHEY_SIMPLEX, 0.40, Scalar(0, 0, 0), 3);
+      putText(debug_bgr, ctxt, Point(4, 18), FONT_HERSHEY_SIMPLEX, 0.40, ccol, 1);
     }
   }
 
-  /* Write back to YUV422 buffer */
   colorbgr_opencv_to_yuv422(debug_bgr, img, width, height);
+  } /* end overlay block */
+#endif /* EDGE_DETECTOR_NO_OVERLAY */
 
   return out;
 }
