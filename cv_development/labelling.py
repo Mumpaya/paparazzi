@@ -5,7 +5,8 @@ import random
 import torch
 import torch.nn as nn
 from torchvision import transforms
-from PIL import Image
+from PIL import Image, ImageDraw
+import numpy as np
 
 # --- Configuration ---
 IMG_DIR = '/home/roan2003/paparazzi/cv_development/cyberzoo_poles/20190121-135009'  # Folder containing your images
@@ -172,6 +173,11 @@ def show_predictions(num_images=5, model_path='my_cnn_model.pth'):
         if len(df) == 0:
             print("CSV file is empty. Please label some images first.")
             return
+        # Filter out rows with missing labels
+        df = df.dropna(subset=['label'])
+        if len(df) == 0:
+            print("No valid labeled images found in CSV. Please label some images first.")
+            return
     except Exception as e:
         print(f"Error reading CSV: {e}")
         return
@@ -222,34 +228,193 @@ def show_predictions(num_images=5, model_path='my_cnn_model.pth'):
             print(f"Could not read {img_name}")
             continue
         
-        # Add text to image
+        # Rotate image to landscape (90 degrees counterclockwise)
+        cv_image = cv2.rotate(cv_image, cv2.ROTATE_90_COUNTERCLOCKWISE)
+        
+        # Convert to PIL for rotated text
+        pil_image = Image.fromarray(cv2.cvtColor(cv_image, cv2.COLOR_BGR2RGB))
+        draw = ImageDraw.Draw(pil_image)
+        
+        # Prepare text
         gt_text = f"Ground Truth: {label_map[ground_truth]}"
         pred_text = f"Prediction: {label_map[prediction]}"
         color_match = (0, 255, 0) if prediction == ground_truth else (0, 0, 255)  # Green if correct, Red if wrong
         
-        cv2.putText(cv_image, gt_text, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
-        cv2.putText(cv_image, pred_text, (10, 70), cv2.FONT_HERSHEY_SIMPLEX, 1, color_match, 2)
+        # Create a larger font
+        try:
+            from PIL import ImageFont
+            font = ImageFont.load_default()
+            # Try to load a larger system font
+            font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 40)
+        except:
+            # Fallback to default if font not available
+            font = ImageFont.load_default()
+        
+        # Draw rotated text on PIL image
+        # Text is rotated 90 degrees counterclockwise (270 degrees clockwise)
+        draw.text((20, 20), gt_text, fill=(255, 255, 255), font=font, angle=270)
+        draw.text((20, 100), pred_text, fill=color_match, font=font, angle=270)
+        
+        # Convert back to OpenCV
+        cv_image = cv2.cvtColor(np.array(pil_image), cv2.COLOR_RGB2BGR)
         
         cv2.imshow('Prediction Comparison', cv_image)
         
         print(f"[{idx+1}/{len(sample_df)}] {img_name}")
         print(f"  Ground Truth: {label_map[ground_truth]} | Prediction: {label_map[prediction]} {'✓' if prediction == ground_truth else '✗'}")
-        print(f"  Press any key to continue, 'q' to quit...")
+        print(f"  Press 's' to save, 'q' to quit, or any other key to continue...")
         
         key = cv2.waitKey(0) & 0xFF
-        if chr(key).lower() == 'q':
+        key_char = chr(key).lower()
+        
+        if key_char == 's':
+            # Create output directory if it doesn't exist
+            output_dir = '/home/roan2003/paparazzi/cv_development/prediction_examples'
+            os.makedirs(output_dir, exist_ok=True)
+            
+            # Save with descriptive filename
+            is_correct = "correct" if prediction == ground_truth else "incorrect"
+            output_filename = f"{is_correct}_{img_name}"
+            output_path = os.path.join(output_dir, output_filename)
+            
+            cv2.imwrite(output_path, cv_image)
+            print(f"  ✓ Saved to {output_path}")
+        elif key_char == 'q':
             break
     
     cv2.destroyAllWindows()
     print("\nDone showing predictions.")
 
 
+def show_incorrect_prediction():
+    """Find and display an example of a wrong prediction"""
+    model_path = '/home/roan2003/paparazzi/my_cnn_model.pth'
+    
+    # Check if CSV exists
+    if not os.path.isfile(OUTPUT_CSV):
+        print(f"CSV file '{OUTPUT_CSV}' not found. Please label some images first.")
+        return
+    
+    # Check if model exists
+    if not os.path.isfile(model_path):
+        print(f"Model file '{model_path}' not found. Please train the model first.")
+        return
+    
+    # Load data
+    try:
+        df = pd.read_csv(OUTPUT_CSV)
+        df = df.dropna(subset=['label'])
+        if len(df) == 0:
+            print("No valid labeled images found in CSV.")
+            return
+    except Exception as e:
+        print(f"Error reading CSV: {e}")
+        return
+    
+    # Set up device and model
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    model = SimpleCNN(num_classes=4).to(device)
+    model.load_state_dict(torch.load(model_path, map_location=device))
+    model.eval()
+    
+    transform = transforms.Compose([
+        transforms.Resize((128, 128)),
+        transforms.ToTensor(),
+        transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])
+    ])
+    
+    # Label mapping
+    label_map = {0: "0", 1: "1", 2: "2", 3: "3"}
+    
+    print("\nSearching for incorrect predictions...\n")
+    
+    # Iterate through all images to find one with wrong prediction
+    for idx, (_, row) in enumerate(df.iterrows()):
+        img_name = row['filename']
+        ground_truth = int(row['label'])
+        
+        img_path = os.path.join(IMG_DIR, img_name)
+        
+        # Load and prepare image
+        try:
+            pil_image = Image.open(img_path).convert("RGB")
+            tensor_image = transform(pil_image).unsqueeze(0).to(device)
+        except Exception as e:
+            print(f"Error loading {img_name}: {e}")
+            continue
+        
+        # Get prediction
+        with torch.no_grad():
+            outputs = model(tensor_image)
+            prediction = int(torch.argmax(outputs, dim=1).item())
+        
+        # Check if prediction is wrong
+        if prediction != ground_truth:
+            print(f"Found incorrect prediction: {img_name}")
+            print(f"  Ground Truth: {label_map[ground_truth]} | Prediction: {label_map[prediction]}")
+            
+            # Display using OpenCV
+            cv_image = cv2.imread(img_path)
+            if cv_image is None:
+                print(f"Could not read {img_name}")
+                continue
+            
+            # Rotate image to landscape (90 degrees counterclockwise)
+            cv_image = cv2.rotate(cv_image, cv2.ROTATE_90_COUNTERCLOCKWISE)
+            
+            # Convert to PIL for rotated text
+            pil_image = Image.fromarray(cv2.cvtColor(cv_image, cv2.COLOR_BGR2RGB))
+            draw = ImageDraw.Draw(pil_image)
+            
+            # Prepare text
+            gt_text = f"Ground Truth: {label_map[ground_truth]}"
+            pred_text = f"Prediction: {label_map[prediction]}"
+            
+            # Create a larger font
+            try:
+                from PIL import ImageFont
+                font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 40)
+            except:
+                font = ImageFont.load_default()
+            
+            # Draw rotated text on PIL image
+            draw.text((20, 20), gt_text, fill=(255, 255, 255), font=font, angle=270)
+            draw.text((20, 100), pred_text, fill=(0, 0, 255), font=font, angle=270)  # Red for wrong
+            
+            # Convert back to OpenCV
+            cv_image = cv2.cvtColor(np.array(pil_image), cv2.COLOR_RGB2BGR)
+            
+            cv2.imshow('Incorrect Prediction Example', cv_image)
+            print(f"  Press 's' to save, or any other key to close...")
+            
+            key = cv2.waitKey(0) & 0xFF
+            key_char = chr(key).lower()
+            
+            if key_char == 's':
+                # Create output directory if it doesn't exist
+                output_dir = '/home/roan2003/paparazzi/cv_development/prediction_examples'
+                os.makedirs(output_dir, exist_ok=True)
+                
+                # Save with descriptive filename
+                output_filename = f"incorrect_{img_name}"
+                output_path = os.path.join(output_dir, output_filename)
+                
+                cv2.imwrite(output_path, cv_image)
+                print(f"  ✓ Saved to {output_path}")
+            
+            cv2.destroyAllWindows()
+            return
+    
+    print("No incorrect predictions found! All predictions match ground truth.")
+
+
 if __name__ == "__main__":
     print("=== Image Labelling & Prediction Tool ===")
     print("1. Label images")
     print("2. Show predictions (requires trained model)")
+    print("3. Show incorrect prediction example")
     
-    choice = input("Enter choice (1 or 2): ").strip()
+    choice = input("Enter choice (1, 2, or 3): ").strip()
     
     if choice == "1":
         label_images()
@@ -260,5 +425,7 @@ if __name__ == "__main__":
         except ValueError:
             num_images = 5
         show_predictions(num_images=num_images)
+    elif choice == "3":
+        show_incorrect_prediction()
     else:
-        print("Invalid choice. Please enter 1 or 2.")
+        print("Invalid choice. Please enter 1, 2, or 3.")

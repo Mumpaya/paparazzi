@@ -1,0 +1,7 @@
+path: /home/roan2003/paparazzi/cv_development/yolo_dataset
+train: images/train
+val: images/train 
+
+names:
+  0: pole
+  1: gate
