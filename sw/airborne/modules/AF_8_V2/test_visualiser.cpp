@@ -47,10 +47,17 @@
 static void txt(cv::Mat &img, const std::string &s, cv::Point pt,
                 cv::Scalar col, double scale = 0.45, int thick = 1)
 {
-    cv::putText(img, s, pt, cv::FONT_HERSHEY_SIMPLEX, scale,
-                cv::Scalar(0,0,0), thick + 2, cv::LINE_AA);
-    cv::putText(img, s, pt, cv::FONT_HERSHEY_SIMPLEX, scale,
-                col, thick, cv::LINE_AA);
+    // Intentionally empty: visualization mode with no text overlays.
+    (void)img; (void)s; (void)pt; (void)col; (void)scale; (void)thick;
+}
+
+/* Small helper to draw text only on the controller panel. We keep the
+ * global txt() as a no-op so other panels remain text-free, but this
+ * function draws using OpenCV directly for the controller UI. */
+static void ctrl_txt(cv::Mat &img, const std::string &s, cv::Point pt,
+                     cv::Scalar col, double scale = 0.45, int thick = 1)
+{
+    cv::putText(img, s, pt, cv::FONT_HERSHEY_SIMPLEX, scale, col, thick, cv::LINE_AA);
 }
 
 /* collect & sort images from folder */
@@ -124,16 +131,10 @@ static cv::Mat draw_obstacle(const cv::Mat &rotated, const ObstacleResult &obs)
         int cx = fz.center_px;
         cv::arrowedLine(out, {cx, h/2 + 30}, {cx, h/2 - 30}, col, 3, cv::LINE_AA, 0, 0.35);
 
-        /* label */
-        char buf[64];
-        snprintf(buf, sizeof(buf), "#%d safe=%.2f w=%dpx", i+1, fz.safety, fz.width_px);
-        txt(out, buf, {fz.left_px + 4, h/2 + 50 + i*16}, col, 0.38);
+    /* no textual labels on flyzones in left panel (visual-only) */
     }
 
-    if (obs.n_flyzones == 0) {
-        txt(out, "NO FLYZONE — BLOCKED", {w/2 - 110, h/2},
-            {0, 0, 255}, 0.7, 2);
-    }
+    /* Do not draw textual 'NO FLYZONE' message; keep visualization minimal */
 
     /* fused score bar at bottom */
     int bar_max_h = 40;
@@ -180,19 +181,7 @@ static cv::Mat draw_gate(const cv::Mat &rotated, const GateResult &gate)
     static const cv::Scalar angle_col[] = {{0,255,0},{0,165,255},{0,165,255}};
     cv::Scalar acol = angle_col[gate.angle];
 
-    char buf[64];
-    snprintf(buf, sizeof(buf), "%s", angle_str[gate.angle]);
-    txt(out, buf, {cx + 8, cy - 10}, acol, 0.55, 1);
-
-    /* distance */
-    if (gate.angle == GATE_ANGLE_GOOD && gate.dist_m > 0) {
-        snprintf(buf, sizeof(buf), "%.2f m", gate.dist_m);
-        txt(out, buf, {cx + 8, cy + 16}, {0,255,255}, 0.5);
-    }
-
-    /* cx% / cy% */
-    snprintf(buf, sizeof(buf), "cx:%.0f%%  cy:%.0f%%", gate.cx_pct, gate.cy_pct);
-    txt(out, buf, {cx - 50, cy + 36}, {200,200,200}, 0.4);
+    // No textual labels for gate — visual-only
 
     /* error bar — how far from centre */
     float error_pct = gate.cx_pct - 50.0f;   /* negative = gate left */
@@ -200,7 +189,7 @@ static cv::Mat draw_gate(const cv::Mat &rotated, const GateResult &gate)
     cv::line(out, {w/2, h - 12}, {bar_x2, h - 12},
              gate.angle == GATE_ANGLE_GOOD ? cv::Scalar(0,255,0) : cv::Scalar(0,165,255), 4);
     cv::line(out, {w/2, h - 18}, {w/2, h - 6}, {200,200,200}, 1);
-    txt(out, "heading err", {w/2 - 50, h - 18}, {180,180,180}, 0.35);
+    // heading error visualized by bar; no text label
 
     return out;
 }
@@ -212,7 +201,7 @@ static cv::Mat draw_bottom_cam(const cv::Mat &bgr, const BottomCamResult &bc, in
     int h = out.rows, w = out.cols;
     
     if (!bc.detected) {
-        txt(out, "No Detection", {w/2 - 60, h/2}, {0,0,255}, 0.7, 2);
+        // no text when no detection — keep bottom view clean
         return out;
     }
     
@@ -228,20 +217,7 @@ static cv::Mat draw_bottom_cam(const cv::Mat &bgr, const BottomCamResult &bc, in
     cv::arrowedLine(out, {fcx, fcy}, {bc.cx_px, bc.cy_px},
                     arrow_col, 3, cv::LINE_AA, 0, 0.3);
     
-    /* Info text */
-    char buf[128];
-    snprintf(buf, sizeof(buf), "Goodness: %.3f", bc.goodness);
-    txt(out, buf, {8, 25}, {0,255,255}, 0.5);
-    
-    snprintf(buf, sizeof(buf), "Magnitude: %.1f px", bc.magnitude);
-    txt(out, buf, {8, 50}, {0,255,255}, 0.5);
-    
-    snprintf(buf, sizeof(buf), "Over Edge: %s", bc.over_edge ? "YES" : "NO");
-    txt(out, buf, {8, 75}, arrow_col, 0.5);
-    
-    /* Centroid coordinates */
-    snprintf(buf, sizeof(buf), "Pos: (%d, %d)", bc.cx_px, bc.cy_px);
-    txt(out, buf, {8, 100}, {200,200,200}, 0.45);
+    // No textual diagnostics on bottom camera view
     
     return out;
 }
@@ -281,14 +257,9 @@ static cv::Mat draw_ctrl_panel(const ControlOutput &ctrl,
         mode_str = "NORMAL";
     }
 
-    /* filled banner bar */
+    /* filled banner bar (no text) */
     cv::rectangle(panel, {0, 0}, {w, 34}, mode_col * 0.35, -1);
     cv::rectangle(panel, {0, 0}, {w, 34}, mode_col, 2);
-    {
-        int tx = w / 2 - (int)(strlen(mode_str) * 10);
-        cv::putText(panel, mode_str, {tx, 24},
-                    cv::FONT_HERSHEY_SIMPLEX, 0.9, mode_col, 2, cv::LINE_AA);
-    }
 
     /* ── action label ───────────────────────────────────────── */
     static const char *action_names[] = {
@@ -332,10 +303,10 @@ static cv::Mat draw_ctrl_panel(const ControlOutput &ctrl,
                           gatelock ? cv::Scalar(0,165,255) : cv::Scalar(0,200,80), -1);
         cv::rectangle(panel, {8, by}, {8 + bar_w, by + 14},
                       cv::Scalar(80,80,80), 1);
-        char sbuf[48];
-        snprintf(sbuf, sizeof(sbuf), "GOOD streak: %d / %d",
-                 ctrl.good_streak, GATELOCK_TRIGGER_FRAMES);
-        txt(panel, sbuf, {12, by + 11}, {180,180,180}, 0.38);
+    char sbuf[48];
+    snprintf(sbuf, sizeof(sbuf), "GOOD streak: %d / %d",
+         ctrl.good_streak, GATELOCK_TRIGGER_FRAMES);
+    ctrl_txt(panel, sbuf, {12, by + 11}, {180,180,180}, 0.38);
         by += 20;
     }
 
@@ -350,10 +321,10 @@ static cv::Mat draw_ctrl_panel(const ControlOutput &ctrl,
                       cv::Scalar(80,80,255), -1);
         cv::rectangle(panel, {8, by}, {8 + bar_w, by + 14},
                       cv::Scalar(80,80,80), 1);
-        char cbuf[48];
-        snprintf(cbuf, sizeof(cbuf), "Coast frames left: %d",
-                 ctrl.coast_frames_left);
-        txt(panel, cbuf, {12, by + 11}, {100,100,255}, 0.38);
+    char cbuf[48];
+    snprintf(cbuf, sizeof(cbuf), "Coast frames left: %d",
+         ctrl.coast_frames_left);
+    ctrl_txt(panel, cbuf, {12, by + 11}, {100,100,255}, 0.38);
         by += 20;
     }
 
@@ -386,20 +357,10 @@ static cv::Mat draw_ctrl_panel(const ControlOutput &ctrl,
                     acol, 3, cv::LINE_AA, 0, 0.25);
 
     /* labels */
-    txt(panel, "L",  {compass_cx - compass_r - 12, compass_cy + 5},
-        {120,120,120}, 0.45);
-    txt(panel, "R",  {compass_cx + compass_r + 4,  compass_cy + 5},
-        {120,120,120}, 0.45);
-    txt(panel, "FWD",{compass_cx - 14, compass_cy - compass_r - 10},
-        {120,120,120}, 0.38);
+    /* keep compass labels off to avoid clutter; controller panel text
+     * is drawn below in a focused area using ctrl_txt() */
 
-    {
-        char hbuf[64];
-        snprintf(hbuf, sizeof(hbuf), "err: %+.1f%%  dYaw: %+.4f rad",
-                 ctrl.heading_error_pct, ctrl.delta_yaw_rad);
-        txt(panel, hbuf, {8, compass_cy + compass_r + 16},
-            {180,180,180}, 0.38);
-    }
+    /* no textual heading diagnostics; needle is shown visually */
 
     by = compass_cy + compass_r + 35;
 
@@ -417,9 +378,7 @@ static cv::Mat draw_ctrl_panel(const ControlOutput &ctrl,
         cv::rectangle(panel, {8, by}, {8 + bar_w, by + 18},
                       cv::Scalar(80,80,80), 1);
 
-        char vbuf[48];
-        snprintf(vbuf, sizeof(vbuf), "Velocity: %.3f m/s", ctrl.forward_vel);
-        txt(panel, vbuf, {12, by + 13}, {220,220,220}, 0.4);
+    /* velocity bar only — no text */
         by += 28;
     }
 
@@ -433,11 +392,11 @@ static cv::Mat draw_ctrl_panel(const ControlOutput &ctrl,
 
         char buf[80];
         snprintf(buf, sizeof(buf), "Gate: %s", gd ? "DETECTED" : "not seen");
-        txt(panel, buf, {8, by}, gd_col, 0.42);
+        ctrl_txt(panel, buf, {8, by}, gd_col, 0.42);
         by += 18;
 
         snprintf(buf, sizeof(buf), "Gate in flyzone: %s", gfz ? "YES" : "NO");
-        txt(panel, buf, {8, by}, gfz_col, 0.42);
+        ctrl_txt(panel, buf, {8, by}, gfz_col, 0.42);
         by += 18;
 
         if (gd) {
@@ -445,13 +404,29 @@ static cv::Mat draw_ctrl_panel(const ControlOutput &ctrl,
             static const cv::Scalar ang_col[] = {{0,255,0},{0,165,255},{0,165,255}};
             snprintf(buf, sizeof(buf), "Gate angle: %s  dist: %.2fm",
                      ang_str[fr.gate.angle], fr.gate.dist_m);
-            txt(panel, buf, {8, by}, ang_col[fr.gate.angle], 0.42);
+            ctrl_txt(panel, buf, {8, by}, ang_col[fr.gate.angle], 0.42);
             by += 18;
         }
 
         snprintf(buf, sizeof(buf), "Flyzones: %d", fr.obstacle.n_flyzones);
-        txt(panel, buf, {8, by}, {80,220,80}, 0.42);
+        ctrl_txt(panel, buf, {8, by}, {80,220,80}, 0.42);
         by += 18;
+
+        /* show per-flyzone brief info */
+        for (int i = 0; i < fr.obstacle.n_flyzones; i++) {
+            const auto &fz = fr.obstacle.flyzone[i];
+            char fbuf[96];
+            snprintf(fbuf, sizeof(fbuf), "[%d] cx=%d w=%d safe=%.2f",
+                     i+1, fz.center_px, fz.width_px, fz.safety);
+            cv::Scalar col = (i==0) ? cv::Scalar(0,255,80) : (i==1) ? cv::Scalar(0,220,255) : cv::Scalar(80,120,255);
+            ctrl_txt(panel, fbuf, {12, by}, col, 0.38);
+            by += 16;
+        }
+        
+        /* draw mode text on banner */
+        if (mode_str) {
+            ctrl_txt(panel, std::string("MODE: ") + mode_str, {w/2 - 40, 22}, {240,240,240}, 0.55, 2);
+        }
     }
 
     return panel;
@@ -462,9 +437,12 @@ static void draw_hud(cv::Mat &canvas, const FrameResults &fr,
                      const ControlOutput &ctrl,
                      int idx, int total, bool paused)
 {
+    /* Place HUD inside the right-most panel so it doesn't overlay the left (flyzone) panel */
+    int panel_w = canvas.cols / 3;
+    int hud_x = panel_w * 2 + 8;
     int y = 16;
     auto hud_line = [&](const std::string &s, cv::Scalar col = {220,220,220}) {
-        txt(canvas, s, {6, y}, col, 0.42);
+        txt(canvas, s, {hud_x, y}, col, 0.42);
         y += 16;
     };
 
@@ -536,14 +514,11 @@ int main(int argc, char *argv[])
     }
     printf("Found %zu images in %s\n", images.size(), folder.c_str());
 
-    /* also try to load bottom camera images */
-    std::string bottom_folder = "sw/airborne/modules/AF_8_V2/Playground_Bottom/20260313-105015";
-    auto bottom_images = collect_images(bottom_folder);
-    if (!bottom_images.empty()) {
-        printf("Found %zu bottom camera images in %s\n", bottom_images.size(), bottom_folder.c_str());
-    } else {
-        printf("Bottom camera folder not found or empty (optional)\n");
-    }
+    /* bottom camera is disabled for this run: visualiser-only mode
+     * (keep code changes confined to this file so detectors/controllers
+     * are not modified). */
+        std::vector<std::string> bottom_images; /* empty -> no bottom processing */
+        bottom_images.clear();
 
     /* init nodes */
     ground_edge_node_init();
@@ -617,10 +592,7 @@ int main(int argc, char *argv[])
                      {0, 255, 0}, 2, cv::LINE_AA);
         }
 
-        /* panel labels */
-        txt(left_panel,      "OBSTACLE + FLYZONE",  {6, fh - 50}, {200,200,200}, 0.45);
-        txt(middle_panel,    "GATE DETECTOR",        {6, fh - 50}, {200,200,200}, 0.45);
-        txt(right_panel,     "CONTROLLER",           {6, fh - 50}, {200,200,200}, 0.45);
+    /* no textual panel labels to keep panels clean */
 
         /* combine 3 panels */
         cv::Mat divider(fh, 3, CV_8UC3, cv::Scalar(60,60,60));
@@ -649,16 +621,7 @@ int main(int argc, char *argv[])
                 cv::Mat bottom_vis = draw_bottom_cam(bottom_raw, bcam, bottom_raw.cols);
 
                 /* add frame counter */
-                char bottom_info[128];
-                snprintf(bottom_info, sizeof(bottom_info), "Frame: %d / %d",
-                         bottom_idx + 1, bottom_total);
-                txt(bottom_vis, bottom_info, {8, (int)bottom_vis.rows - 20},
-                    {100, 100, 255}, 0.5);
-
-                if (paused) {
-                    txt(bottom_vis, "PAUSED", {(int)bottom_vis.cols - 120, (int)bottom_vis.rows - 20},
-                        {0, 0, 255}, 0.6);
-                }
+                // No textual bottom info; show visual-only
 
                 cv::imshow("Bottom Camera Detection", bottom_vis);
             }
