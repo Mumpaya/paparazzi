@@ -56,19 +56,18 @@ volatile ControlOutput ctrl_output;
 static ControllerState s_ctrl;
 static float s_heading_sp = 0.0f;
 
-/* ── datalink-tunable settings (declared in af8_vision.xml) ──────── */
+/* ── datalink-tunable settings ──────── */
 int   af8_draw_overlay = 0;
 float af8_k_yaw        = K_YAW;
 float af8_v_std        = V_STD;
 float af8_v_gate       = V_GATE;
-float af8_bottom_cam_steer_threshold = 80.0f;  /* pixels — magnitude threshold for steering */
+float af8_bottom_cam_steer_threshold = 80.0f;  
 
 /* ════════════════════════════════════════════════════════════════
  * OVERLAY DRAWING  (compiled only when AF_8_V2_DRAW == 1)
  * ═══════════════════════════════════════════════════════════════ */
 #if AF_8_V2_DRAW
 
-/* small text helper with black outline */
 static void ov_txt(cv::Mat &img, const char *s, cv::Point pt,
                    cv::Scalar col, double scale = 0.42, int thick = 1)
 {
@@ -78,15 +77,6 @@ static void ov_txt(cv::Mat &img, const char *s, cv::Point pt,
                 scale, col, thick, cv::LINE_AA);
 }
 
-/*
- * draw_overlay()
- *
- * Annotates `canvas` (BGR, rotated-space, same size as rotated frame)
- * with obstacle, gate and controller visuals.
- *
- * The image is already in rotated (portrait) orientation when it
- * arrives here.  After drawing we rotate back and copy to img->buf.
- */
 static void draw_overlay(cv::Mat &canvas,
                          const FrameResults  &fr,
                          const ControlOutput &ctrl)
@@ -212,12 +202,10 @@ static struct image_t *cv_main_cb(struct image_t *img,
 {
     if (!img || img->type != IMAGE_YUV422) return img;
 
-    /* ── Convert YUV422 → BGR ────────────────────────────────── */
     cv::Mat yuv(img->h, img->w, CV_8UC2, img->buf);
     cv::Mat bgr;
     cv::cvtColor(yuv, bgr, cv::COLOR_YUV2BGR_YUYV);
 
-    /* ── Rotate 90° CCW (camera mounted sideways) ───────────── */
     cv::Mat rotated;
     cv::rotate(bgr, rotated, cv::ROTATE_90_COUNTERCLOCKWISE);
 
@@ -241,18 +229,12 @@ static struct image_t *cv_main_cb(struct image_t *img,
     *((FrameResults  *)&frame_results) = local;
     *((ControlOutput *)&ctrl_output)   = cmd;
 
-        /* ── Draw overlay and write back into img->buf ──────────── */
 #if AF_8_V2_DRAW
-    /* Annotate the rotated frame */
     draw_overlay(rotated, local, cmd);
 
-    /* Rotate back to original (CW = undo CCW) */
     cv::Mat annotated_bgr;
     cv::rotate(rotated, annotated_bgr, cv::ROTATE_90_CLOCKWISE);
 
-    /* Convert BGR → YUV422 (YUYV) and copy back into the camera buffer.
-     * COLOR_BGR2YUV_YUYV only exists in OpenCV >= 4.8, so we pack manually.
-     * img->buf is exactly img->w * img->h * 2 bytes (YUYV interleaved). */
     cv::Mat yuv_tmp;
     cv::cvtColor(annotated_bgr, yuv_tmp, cv::COLOR_BGR2YUV);
     cv::Mat yuv_out(annotated_bgr.rows, annotated_bgr.cols, CV_8UC2);
@@ -271,7 +253,7 @@ static struct image_t *cv_main_cb(struct image_t *img,
            (size_t)img->w * (size_t)img->h * 2u);
 #endif
 
-    return img;   /* return (modified) image — other modules can chain */
+    return img;  
 }
 
 /* ════════════════════════════════════════════════════════════════

@@ -4,10 +4,6 @@ import glob
 import re
 import numpy as np
 
-# ==========================================================
-# FINAL SETTINGS (Hardcoded from your Tuning)
-# ==========================================================
-
 """ 
 # Real
 CONF = {
@@ -17,9 +13,9 @@ CONF = {
     "H_MAX": 17,
     "S_MIN": 134,
     "V_MIN": 126,
-    "WARP": 0.013,        # From your "Shape: Warp Tolerance"
-    "CONF_RATIO": 0.17,   # Your 13% confidence
-    "ALPHA": 0.2,         # Smoothing factor (0.1 = smooth, 0.9 = twitchy)
+    "WARP": 0.013,      
+    "CONF_RATIO": 0.17,  
+    "ALPHA": 0.2,        
     "MIN_AREA": 700,
     "LINE_THICK": 8
 }
@@ -29,16 +25,16 @@ CONF = {
 CONF = {
     "GATE_W": 1.0,
     "GATE_H": 1.0,
-    "H_MIN": 18,           # Shifted up: Cuts out red/orange, starts at Golden Yellow
-    "H_MAX": 32,           # Shifted down: Tightens the range around pure Yellow
-    "S_MIN": 165,          # Increased: Requires more "pure" color (less washed out)
-    "V_MIN": 130,          # Increased: Ignores dark shadows and brown textures
+    "H_MIN": 18,           
+    "H_MAX": 32,           
+    "S_MIN": 165,         
+    "V_MIN": 130,       
     "WARP": 0.013,         
-    "CONF_RATIO": 0.25,    # Slightly stricter: Requires more of the shape to match
+    "CONF_RATIO": 0.25,   
     "ALPHA": 0.3,         
-    "MIN_AREA": 450,       # Slightly increased: Filters out small distant noise
+    "MIN_AREA": 450,     
     "LINE_THICK": 6,
-    "MAX_SOLIDITY": 0.60   # Keeps it focused on hollow gate shapes
+    "MAX_SOLIDITY": 0.60  
 }
 OBJ_POINTS = np.array([
     [-CONF["GATE_W"]/2,  CONF["GATE_H"]/2, 0], 
@@ -154,7 +150,6 @@ def gate_generator(image_list):
 # MAIN EXECUTION
 # ==========================================================
 if __name__ == "__main__":
-    # --- CHOOSE YOUR DATASET PATH ---
     dataset_path = "Data/AE4317_2019_datasets/sim_poles_panels_mats/20190121-161931"
     # dataset_path = "Data/AE4317_2019_datasets/cyberzoo_poles_panels_mats/20190121-142935"
     # dataset_path = "Data/AE4317_2019_datasets/cyberzoo_aggressive_flight/20190121-144646"

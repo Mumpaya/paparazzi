@@ -21,8 +21,7 @@ CONF = {
     # Gate validation thresholds
     "GATE_MAX_VERT_DIFF":  0.20,  # max vertical centre diff as fraction of frame height
     "GATE_MIN_HORIZ_DIST": 0.10,  # min horizontal centre dist as fraction of frame width
-    "GATE_ANGLE_THRESH":   0.5,  # if one pillar bbox area is >20% larger → LEFT or RIGHT label
-    # Distance estimation — calibrate: if horiz_dist == frame width → this distance in metres
+    "GATE_ANGLE_THRESH":   0.5, 
     "DIST_CALIB_M":        0.79,   # metres when gate spans full frame width
 }
 
@@ -56,9 +55,6 @@ def find_blue_pillars(mask, img_h, img_w):
         else:
             rejected.append((cnt, (x, y, w, h)))
 
-    # Pick the pair of accepted blobs with the greatest horizontal separation.
-    # This is more robust than "2 largest" — real gate pillars are always far apart in X,
-    # whereas spurious blobs tend to cluster near a real pillar.
     best_pair = []
     best_dist = -1
     for i in range(len(accepted)):
@@ -94,31 +90,29 @@ if __name__ == "__main__":
         h, w = frame.shape[:2]
 
         # 1. COLOR MASKING
-        # Step A — BGR pre-filter (blue channel dominant, caps on red & green)
+        # Step A — BGR filter
         bgr_mask  = cv2.inRange(frame, CONF["BGR_LOW"], CONF["BGR_HIGH"])
 
         # Step B — HSV filter
         hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
         hsv_mask  = cv2.inRange(hsv, CONF["BLUE_LOW"], CONF["BLUE_HIGH"])
 
-        # Combined: pixel must pass BOTH filters
         blue_mask = cv2.bitwise_and(bgr_mask, hsv_mask)
 
-        # Clean up noise — remove isolated specks
+        # Clean up noise 
         open_k  = np.ones((CONF["OPEN_KERNEL"],  CONF["OPEN_KERNEL"]),  np.uint8)
         blue_mask = cv2.morphologyEx(blue_mask, cv2.MORPH_OPEN,  open_k)
 
-        # Bridge vertical gaps — tall narrow kernel merges split top/bottom pillar fragments
+        # Bridge vertical gaps 
         close_k = np.ones((CONF["CLOSE_KERNEL"], 1), np.uint8)   # height × 1 px wide
         blue_mask = cv2.morphologyEx(blue_mask, cv2.MORPH_CLOSE, close_k)
 
         # 2. DETECTION
         pillar_x, accepted, rejected = find_blue_pillars(blue_mask, h, w)
 
-        # --- Window 3: Contours / Blobs ---
         blob_view = frame.copy()
 
-        # Accepted pillars → green outline + stats
+        # Accepted pillars
         for cnt, (bx, by, bw, bh) in accepted:
             cv2.drawContours(blob_view, [cnt], -1, (0, 255, 0), 2)
             cv2.rectangle(blob_view, (bx, by), (bx + bw, by + bh), (0, 220, 0), 1)
@@ -129,7 +123,7 @@ if __name__ == "__main__":
                         cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 0, 0), 3, cv2.LINE_AA)
             cv2.putText(blob_view, label, (bx, by - 4),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 255, 0), 1, cv2.LINE_AA)
-        # Rejected blobs → red outline + values
+        # Rejected blobs
         for cnt, (bx, by, bw, bh) in rejected:
             cv2.drawContours(blob_view, [cnt], -1, (0, 0, 255), 1)
             cv2.rectangle(blob_view, (bx, by), (bx + bw, by + bh), (0, 0, 180), 1)
@@ -147,7 +141,6 @@ if __name__ == "__main__":
         cv2.putText(blob_view, f"ACC:{len(accepted)}  REJ:{len(rejected)}", (5, 18),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1, cv2.LINE_AA)
 
-        # --- Window 4: Gate Detection ---
         gate_view = np.zeros((h, w, 3), dtype=np.uint8)
         gate_valid = False
 
@@ -178,17 +171,15 @@ if __name__ == "__main__":
                 gate_valid = vert_ok and horiz_ok
 
                 if gate_valid:
-                    # --- Gate centre position ---
-                    gate_cx = (pillar_x[0] + pillar_x[1]) // 2        # horizontal centre
-                    gate_cy = (cy0 + cy1) // 2                         # vertical centre
+                    gate_cx = (pillar_x[0] + pillar_x[1]) // 2       
+                    gate_cy = (cy0 + cy1) // 2                       
 
-                    # --- Approach angle (LEFT / RIGHT / GOOD) ---
                     area0 = bw0 * bh0   # left pillar bbox area
                     area1 = bw1 * bh1   # right pillar bbox area
                     thresh = CONF["GATE_ANGLE_THRESH"]
                     if area0 > area1 * (1 + thresh):
                         angle_label = "LEFT"
-                        angle_colour = (0, 165, 255)   # orange
+                        angle_colour = (0, 165, 255)
                     elif area1 > area0 * (1 + thresh):
                         angle_label = "RIGHT"
                         angle_colour = (0, 165, 255)
@@ -196,9 +187,6 @@ if __name__ == "__main__":
                         angle_label = "GOOD"
                         angle_colour = (0, 255, 0)
 
-                    # --- Distance estimate (only meaningful when angle is GOOD) ---
-                    # Linear model: distance ∝ 1/horiz_dist
-                    # At horiz_dist == w  →  DIST_CALIB_M metres
                     gate_dist_m = CONF["DIST_CALIB_M"] * w / horiz_dist if horiz_dist > 0 else None
 
         for x in pillar_x:
@@ -212,7 +200,6 @@ if __name__ == "__main__":
             cv2.drawMarker(gate_view, (gate_cx, gate_cy), (0, 255, 255),
                            cv2.MARKER_CROSS, 20, 2)
 
-            # Info overlay
             cv2.putText(gate_view, "GATE DETECTED", (10, 28),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.65, (0, 255, 0), 2)
             cv2.putText(gate_view, f"cx:{gate_cx}px  cy:{gate_cy}px", (10, 52),
@@ -229,11 +216,6 @@ if __name__ == "__main__":
             cv2.putText(gate_view, "PILLARS: bad alignment", (10, 30),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 165, 255), 2)
 
-        # --- Window 5: Camera + Gate overlay ---
-        # Draw the projected square gate onto the real camera feed.
-        # Gate is assumed square → side length == horiz_dist (pillar centre separation).
-        # The gate square spans: left edge = pillar_x[0], right edge = pillar_x[1],
-        # and height == horiz_dist centred on gate_cy.
         cam_view = frame.copy()
 
         if gate_valid:
@@ -243,28 +225,25 @@ if __name__ == "__main__":
             sq_top    = max(0, gate_cy - gate_half)
             sq_bottom = min(h - 1, gate_cy + gate_half)
 
-            # Gate square — cyan outline, thick
+            # Gate square 
             cv2.rectangle(cam_view, (sq_left, sq_top), (sq_right, sq_bottom),
                           (255, 255, 0), 2)
 
             # Centre crosshair
             cv2.drawMarker(cam_view, (gate_cx, gate_cy), (0, 255, 255),
                            cv2.MARKER_CROSS, 22, 2)
-
-            # --- Side labels (small font, shadowed) ---
+            
             def _txt(img, text, pt, colour, scale=0.38, thick=1):
                 cv2.putText(img, text, pt, cv2.FONT_HERSHEY_SIMPLEX,
                             scale, (0, 0, 0), thick + 2, cv2.LINE_AA)
                 cv2.putText(img, text, pt, cv2.FONT_HERSHEY_SIMPLEX,
                             scale, colour, thick, cv2.LINE_AA)
 
-            # Left side — distance (vertical, rotated text via column of chars)
             if angle_label == "GOOD" and gate_dist_m is not None:
                 dist_str = f"{gate_dist_m:.2f}m"
                 _txt(cam_view, dist_str, (max(0, sq_left - 38), gate_cy + 4),
                      (0, 255, 255))
 
-            # Right side — heading angle label
             _txt(cam_view, angle_label,
                  (min(w - 45, sq_right + 4), gate_cy + 4), angle_colour)
 

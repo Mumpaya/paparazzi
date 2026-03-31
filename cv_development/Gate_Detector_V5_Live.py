@@ -11,7 +11,7 @@ CONF = {
     # HSV Blue Range
     "BLUE_LOW":  np.array([79, 90, 120]),
     "BLUE_HIGH": np.array([137, 220, 255]),
-    # BGR pre-filter — (B, G, R) order
+    # BGR filter — (B, G, R) order
     "BGR_LOW":  np.array([70,   17,   20]),
     "BGR_HIGH": np.array([255, 200, 150]),
     "MIN_BBOX_FRAC": 0.002,      
@@ -21,8 +21,7 @@ CONF = {
     # Gate validation thresholds
     "GATE_MAX_VERT_DIFF":  0.20,  # max vertical centre diff as fraction of frame height
     "GATE_MIN_HORIZ_DIST": 0.10,  # min horizontal centre dist as fraction of frame width
-    "GATE_ANGLE_THRESH":   0.5,  # if one pillar bbox area is >20% larger → LEFT or RIGHT label
-    # Distance estimation — calibrate: if horiz_dist == frame width → this distance in metres
+    "GATE_ANGLE_THRESH":   0.5,  # if one pillar bbox area is larger → LEFT or RIGHT label
     "DIST_CALIB_M":        0.79,   # metres when gate spans full frame width
 }
 
@@ -56,9 +55,6 @@ def find_blue_pillars(mask, img_h, img_w):
         else:
             rejected.append((cnt, (x, y, w, h)))
 
-    # Pick the pair of accepted blobs with the greatest horizontal separation.
-    # This is more robust than "2 largest" — real gate pillars are always far apart in X,
-    # whereas spurious blobs tend to cluster near a real pillar.
     best_pair = []
     best_dist = -1
     for i in range(len(accepted)):
@@ -74,7 +70,7 @@ def find_blue_pillars(mask, img_h, img_w):
     return results, accepted, rejected
 
 # ==========================================================
-# CORE PROCESSING — callable from a control node
+# CORE PROCESSING 
 # ==========================================================
 def process_frame(frame):
     """Run full gate detection pipeline on a single BGR frame (already rotated).
@@ -103,22 +99,22 @@ def process_frame(frame):
     h, w = frame.shape[:2]
 
     # 1. COLOR MASKING
-    # Step A — BGR pre-filter (blue channel dominant, caps on red & green)
+    # Step A — BGR filter
     bgr_mask = cv2.inRange(frame, CONF["BGR_LOW"], CONF["BGR_HIGH"])
 
     # Step B — HSV filter
     hsv      = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
     hsv_mask = cv2.inRange(hsv, CONF["BLUE_LOW"], CONF["BLUE_HIGH"])
 
-    # Combined: pixel must pass BOTH filters
+    # Combined: pixel must pass both filters
     blue_mask = cv2.bitwise_and(bgr_mask, hsv_mask)
 
-    # Clean up noise — remove isolated specks
+    # Clean up noise 
     open_k    = np.ones((CONF["OPEN_KERNEL"], CONF["OPEN_KERNEL"]), np.uint8)
     blue_mask = cv2.morphologyEx(blue_mask, cv2.MORPH_OPEN,  open_k)
 
-    # Bridge vertical gaps — tall narrow kernel merges split top/bottom pillar fragments
-    close_k   = np.ones((CONF["CLOSE_KERNEL"], 1), np.uint8)   # height × 1 px wide
+    # Bridge vertical gaps
+    close_k   = np.ones((CONF["CLOSE_KERNEL"], 1), np.uint8)  
     blue_mask = cv2.morphologyEx(blue_mask, cv2.MORPH_CLOSE, close_k)
 
     # 2. DETECTION
@@ -162,12 +158,12 @@ def process_frame(frame):
 
             if gate_valid:
                 # --- Gate centre position ---
-                gate_cx = (pillar_x[0] + pillar_x[1]) // 2        # horizontal centre
-                gate_cy = (cy0 + cy1) // 2                         # vertical centre
+                gate_cx = (pillar_x[0] + pillar_x[1]) // 2       
+                gate_cy = (cy0 + cy1) // 2                        
 
-                # --- Approach angle (LEFT / RIGHT / GOOD) ---
-                area0 = bw0 * bh0   # left pillar bbox area
-                area1 = bw1 * bh1   # right pillar bbox area
+                # --- Approach angle 
+                area0 = bw0 * bh0 
+                area1 = bw1 * bh1  
                 thresh = CONF["GATE_ANGLE_THRESH"]
                 if area0 > area1 * (1 + thresh):
                     angle_label = "LEFT"
@@ -176,12 +172,9 @@ def process_frame(frame):
                     angle_label = "RIGHT"
                     angle_colour = (0, 165, 255)
                 else:
+
                     angle_label = "GOOD"
                     angle_colour = (0, 255, 0)
-
-                # --- Distance estimate (only meaningful when angle is GOOD) ---
-                # Linear model: distance ∝ 1/horiz_dist
-                # At horiz_dist == w  →  DIST_CALIB_M metres
                 gate_dist_m = CONF["DIST_CALIB_M"] * w / horiz_dist if horiz_dist > 0 else None
 
                 # --- Projected gate square (gate is square → side == horiz_dist) ---
@@ -205,10 +198,9 @@ def process_frame(frame):
                     "sq_bottom"  : sq_bottom,
                 }
 
-    # 4. CAMERA + GATE OVERLAY (Window 5 logic — unchanged)
+    # 4. CAMERA + GATE OVERLAY
     cam_view = frame.copy()
 
-    # --- Side label helper (shadowed text) ---
     def _txt(img, text, pt, colour, scale=0.38, thick=1):
         cv2.putText(img, text, pt, cv2.FONT_HERSHEY_SIMPLEX,
                     scale, (0, 0, 0), thick + 2, cv2.LINE_AA)
@@ -216,7 +208,7 @@ def process_frame(frame):
                     scale, colour, thick, cv2.LINE_AA)
 
     if gate_valid:
-        # Gate square — cyan outline, thick
+        # Gate square
         cv2.rectangle(cam_view, (sq_left, sq_top), (sq_right, sq_bottom),
                       (255, 255, 0), 2)
 
@@ -224,13 +216,11 @@ def process_frame(frame):
         cv2.drawMarker(cam_view, (gate_cx, gate_cy), (0, 255, 255),
                        cv2.MARKER_CROSS, 22, 2)
 
-        # Left side — distance
         if angle_label == "GOOD" and gate_dist_m is not None:
             dist_str = f"{gate_dist_m:.2f}m"
             _txt(cam_view, dist_str, (max(0, sq_left - 38), gate_cy + 4),
                  (0, 255, 255))
-
-        # Right side — heading angle label
+            
         _txt(cam_view, angle_label,
              (min(w - 45, sq_right + 4), gate_cy + 4), angle_colour)
 
@@ -253,11 +243,9 @@ def process_frame(frame):
 
 
 # ==========================================================
-# LIVE SIMULATION — iterates dataset as if it were a live feed
+# LIVE SIMULATION 
 # ==========================================================
 if __name__ == "__main__":
-    # Simulated frame rate: ~30 fps playback (33 ms per frame).
-    # Press 'q' to quit, SPACE to pause/resume.
     PLAYBACK_FPS = 30
     FRAME_DELAY_MS = max(1, 1000 // PLAYBACK_FPS)
 
@@ -272,15 +260,12 @@ if __name__ == "__main__":
         if not paused:
             img_input = cv2.imread(images[idx % len(images)])
             if img_input is not None:
-                # --- ROTATION (same as before) ---
+                # ROTATION 
                 frame = cv2.rotate(img_input, cv2.ROTATE_90_COUNTERCLOCKWISE)
 
                 gate_state, cam_view = process_frame(frame)
 
-                # gate_state is ready to be consumed by a control node, e.g.:
-                #   if gate_state["detected"]:
-                #       send_to_controller(gate_state)
-                print(gate_state)   # visible in terminal; remove/replace in production
+                print(gate_state) 
 
                 cv2.imshow("Gate View", cam_view)
             idx += 1

@@ -1,9 +1,4 @@
-/*
- * gate_detector_node.cpp — Blue-gate detector
- *
- * Port of Gate_Detector_V5_Live.py  process_frame().
- * BGR+HSV dual filter → find blue pillars → validate gate → angle + distance.
- */
+
 
 #include "gate_detector_node.h"
 
@@ -14,7 +9,7 @@
 #include <vector>
 #include <algorithm>
 
-/* ── configuration (mirrors Python CONF dict) ───────────────────── */
+/* ── configuration (mirrors Python CONF dict)*/
 static const cv::Scalar BLUE_HSV_LO(79, 90, 120);
 static const cv::Scalar BLUE_HSV_HI(137, 220, 255);
 static const cv::Scalar BGR_LO(70,  17,  20);
@@ -95,7 +90,6 @@ static int find_blue_pillars(const cv::Mat &mask, int img_h, int img_w,
 
 void gate_detector_node_init(void)
 {
-    /* nothing stateful for now */
 }
 
 void gate_detector_node_process(const uint8_t *bgr_data,
@@ -156,8 +150,8 @@ void gate_detector_node_process(const uint8_t *bgr_data,
     /* distance estimate (meaningful when angle == GOOD) */
     float dist_m = horiz_dist > 0 ? DIST_CALIB_M * w / (float)horiz_dist : -1.0f;
 
-    /* projected gate square (computed but not stored — removed from struct) */
-    (void)horiz_dist; /* used above for dist_m */
+    /* projected gate square */
+    (void)horiz_dist;
     int gate_half = horiz_dist / 2;
     (void)gate_half;
 
