@@ -29,12 +29,17 @@ class OrangePoleDetector:
 
     def __init__(
         self,
-        # hsv_lower: tuple = (8, 80, 50),
-        # hsv_upper: tuple = (25, 255, 255),
-        hsv_lower: tuple = (5,  120,  80),
-        hsv_upper: tuple = (30, 255, 255),
-        min_area: int = 300,
-        min_aspect_ratio: float = 1.5,
+
+        # PERFECT IN SIMULATION:
+        # hsv_lower: tuple = (5,  120,  80),
+        # hsv_upper: tuple = (30, 255, 255),
+
+        # TUNED FOR CYBERZOO DATASET:
+        hsv_lower: tuple = (0,  40,  50),
+        hsv_upper: tuple = (25, 255, 255),
+        
+        min_area: int = 500,
+        min_aspect_ratio: float = 2.5,
         min_confidence: float = 0.3,
         morph_kernel_size: tuple = (5, 5),
         canny_low: int = 50,

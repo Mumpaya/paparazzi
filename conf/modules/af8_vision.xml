@@ -1,0 +1,150 @@
+<!DOCTYPE module SYSTEM "module.dtd">
+
+<module name="af8_vision" dir="AF_8_V2">
+  <doc>
+    <description>
+AF_8_V2 Computer Vision Pipeline — AE4317 Autonomous Flight of MAVs (TU Delft)
+
+Runs the full detection + control pipeline on the Bebop front camera:
+  1. Ground-edge detector  — finds the green mat boundary (HSV + Hough)
+  2. Obstacle detector     — fused optical-flow + Hough + colour columns,
+                             outputs up to 3 ranked flyable corridors
+  3. Gate detector         — dual BGR/HSV blue-pillar tracker, outputs
+                             gate centre, approach angle and distance
+  4. Bottom camera node    — ground edge detection from bottom camera,
+                             outputs centroid for steering control
+  5. Controller            — NORMAL / GATELOCK state machine producing
+                             delta_yaw_rad and forward_vel each frame
+
+When AF_8_V2_DRAW is enabled (default) all overlays are drawn back
+into the camera buffer so the GCS video stream shows annotations live.
+
+Results are exposed as:
+  extern volatile FrameResults  frame_results;   // detection
+  extern volatile ControlOutput ctrl_output;     // heading + velocity
+
+Read these from your flight plan or guidance module:
+  ControlOutput cmd = *((ControlOutput*)&amp;ctrl_output);
+  guidance_h_set_guided_heading_delta(cmd.delta_yaw_rad);
+    </description>
+
+    <!-- ── Camera ── -->
+    <define name="AF8_VISION_CAMERA"
+            value="front_camera"
+            description="Video device to attach the pipeline to (front_camera or bottom_camera)"/>
+
+    <!-- ── Draw overlay ── -->
+    <define name="AF_8_V2_DRAW"
+            value="1"
+            description="Set to 1 to draw detection + controller overlays into the video stream, 0 to disable"/>
+
+    <!-- ── Controller gains ── -->
+    <define name="AF8_K_YAW"
+            value="0.001"
+            description="Heading gain: radians of yaw change per 1% of frame-width heading error"/>
+    <define name="AF8_V_STD"
+            value="0.2"
+            description="Forward velocity in NORMAL mode (m/s)"/>
+    <define name="AF8_V_GATE"
+            value="0.3"
+            description="Forward velocity in GATELOCK approach mode (m/s)"/>
+    <define name="AF8_GATELOCK_TRIGGER"
+            value="7"
+            description="Consecutive GOOD-angle + unobstructed frames required to enter GATELOCK mode"/>
+    <define name="AF8_GATELOCK_COAST"
+            value="30"
+            description="Frames to coast in GATELOCK after gate disappears (flying through gate)"/>
+    <define name="AF8_GATE_MIN_FZ_WIDTH"
+            value="60"
+            description="Minimum flyzone width (px) for gate to be used as heading target"/>
+  </doc>
+
+  <!-- ── Tunable settings sent over datalink ── -->
+  <settings>
+    <dl_settings>
+      <dl_settings name="AF8_Vision">
+        <dl_setting var="af8_draw_overlay"
+                    min="0" step="1" max="1"
+                    values="OFF|ON"
+                    shortname="draw_overlay"/>
+        <dl_setting var="af8_k_yaw"
+                    min="0.0001" step="0.0001" max="0.01"
+                    shortname="k_yaw"/>
+        <dl_setting var="af8_v_std"
+                    min="0.0" step="0.05" max="1.0"
+                    shortname="v_std"/>
+        <dl_setting var="af8_v_gate"
+                    min="0.0" step="0.05" max="1.0"
+                    shortname="v_gate"/>
+        <dl_setting var="af8_bottom_cam_steer_threshold"
+                    min="10.0" step="5.0" max="300.0"
+                    shortname="bottom_cam_thresh"/>
+      </dl_settings>
+    </dl_settings>
+  </settings>
+
+  <!-- ── Dependencies ── -->
+  <dep>
+    <depends>video_thread</depends>
+  </dep>
+
+  <!-- ── Module header ── -->
+  <header>
+    <file name="cv_main.h"/>
+  </header>
+
+  <!-- ── Init + periodic hooks ── -->
+  <init    fun="cv_main_init()"/>
+  <periodic fun="cv_main_periodic()" freq="30" autorun="TRUE"/>
+
+  <!-- ── Build rules ── -->
+  <!--
+      target="ap"   → real drone build
+      target="nps"  → NPS simulator build
+      Both include the full pipeline.
+  -->
+  <makefile target="nps">
+    <!-- C++17 is required -->
+    <flag name="CXXFLAGS" value="-std=c++17"/>
+
+    <!-- System OpenCV (installed via apt) -->
+    <flag name="CXXFLAGS" value="I/usr/include/opencv4"/>
+    <flag name="LDFLAGS" value="lopencv_core"/>
+    <flag name="LDFLAGS" value="lopencv_imgproc"/>
+    <flag name="LDFLAGS" value="lopencv_highgui"/>
+    <flag name="LDFLAGS" value="lopencv_video"/>
+
+    <!-- All pipeline sources -->
+    <file name="cv_main.cpp"/>
+    <file name="ground_edge_node.cpp"/>
+    <file name="obstacle_detector_node.cpp"/>
+    <file name="gate_detector_node.cpp"/>
+    <file name="bottom_cam_node.cpp"/>
+    <file name="controller.cpp"/>
+
+    <define name="AF_8_V2_DRAW" value="1"/>
+  </makefile>
+<makefile target="ap">
+  <flag name="CXXFLAGS" value="-std=c++17"/>
+
+  <flag name="CXXFLAGS" value="I$(PAPARAZZI_SRC)/sw/ext/opencv_bebop/install_arm/include"/>
+  <flag name="LDFLAGS" value="L$(PAPARAZZI_SRC)/sw/ext/opencv_bebop/install_arm/lib"/>
+  <flag name="LDFLAGS" value="lopencv_world"/>
+  <flag name="LDFLAGS" value="lz"/>
+  <flag name="LDFLAGS" value="ldl"/>
+  <flag name="LDFLAGS" value="lm"/>
+  <flag name="LDFLAGS" value="lpthread"/>
+  <flag name="LDFLAGS" value="lrt"/>
+
+  <file name="cv_main.cpp"/>
+  <file name="ground_edge_node.cpp"/>
+  <file name="obstacle_detector_node.cpp"/>
+  <file name="gate_detector_node.cpp"/>
+  <file name="bottom_cam_node.cpp"/>
+  <file name="controller.cpp"/>
+
+  <define name="AF_8_V2_DRAW" value="0"/>
+</makefile>
+
+
+</module>

@@ -58,6 +58,16 @@
     <module name="logger_file"/>
 
     <!-- Video/Camera modules -->
+<!--    <module name="cv_bottom_edge_detector">-->
+<!--      <define name="CV_BOTTOM_EDGE_DETECTOR_CAMERA" value="bottom_camera"/>-->
+<!--      <define name="CV_BOTTOM_EDGE_DETECTOR_FPS" value="0"/>-->
+<!--      <define name="CV_BED_DRAW" value="TRUE"/>-->
+<!--    </module>-->
+    <module name="cv_bottom_flow_velocity">
+      <define name="CV_BOTTOM_FLOW_VELOCITY_CAMERA" value="bottom_camera"/>
+      <define name="CV_BOTTOM_FLOW_VELOCITY_FPS" value="0"/>
+      <define name="CV_BFV_DRAW" value="TRUE"/>
+    </module>
     <module name="bebop_cam"/>
     <!--module name="bebop_ae_awb">
       <define name="CV_AE_AWB_VERBOSE" value="0" />

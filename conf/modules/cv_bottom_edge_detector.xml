@@ -1,0 +1,71 @@
+<!DOCTYPE module SYSTEM "module.dtd">
+
+<module name="cv_bottom_edge_detector" dir="computer_vision">
+    <doc>
+        <description>
+            Bottom camera edge detector in YUV422 space.
+            Computes centroid of "good" ground pixels and a simple over-edge boolean.
+            Optionally draws detection result by brightening matching pixels.
+        </description>
+
+        <define name="CV_BOTTOM_EDGE_DETECTOR_CAMERA" value="bottom_camera|front_camera" description="Video device to use"/>
+        <define name="CV_BOTTOM_EDGE_DETECTOR_FPS" value="0" description="Desired FPS (0: camera rate)"/>
+
+        <define name="CV_BED_H_MIN" value="0" description="Green filter min V(chroma-red channel in UYVY interpretation)"/>
+        <define name="CV_BED_H_MAX" value="66" description="Green filter max V(chroma-red channel in UYVY interpretation)"/>
+        <define name="CV_BED_S_MIN" value="15" description="Green filter min U(chroma-blue channel in UYVY interpretation)"/>
+        <define name="CV_BED_S_MAX" value="225" description="Green filter max U(chroma-blue channel in UYVY interpretation)"/>
+        <define name="CV_BED_V_MIN" value="120" description="Green filter min Y(luma)"/>
+        <define name="CV_BED_V_MAX" value="255" description="Green filter max Y(luma)"/>
+
+        <define name="CV_BED_NOTGREEN_H_MIN" value="88" description="Non-green filter min V"/>
+        <define name="CV_BED_NOTGREEN_H_MAX" value="255" description="Non-green filter max V"/>
+        <define name="CV_BED_NOTGREEN_S_MIN" value="0" description="Non-green filter min U"/>
+        <define name="CV_BED_NOTGREEN_S_MAX" value="255" description="Non-green filter max U"/>
+        <define name="CV_BED_NOTGREEN_V_MIN" value="0" description="Non-green filter min Y"/>
+        <define name="CV_BED_NOTGREEN_V_MAX" value="255" description="Non-green filter max Y"/>
+
+        <define name="CV_BED_NONUNIFORM_THRESH" value="15" description="Local luma difference threshold for non-uniform texture"/>
+        <define name="CV_BED_EDGE_RADIUS_RATIO_PCT" value="80" description="Edge radius as percentage of nominal image radius"/>
+        <define name="CV_BED_DRAW" value="FALSE|TRUE" description="Whether or not to draw on image"/>
+    </doc>
+
+    <settings>
+        <dl_settings>
+            <dl_settings name="BottomEdgeDetector">
+                <dl_setting var="cbed_h_min" min="0" step="1" max="255" shortname="h_min"/>
+                <dl_setting var="cbed_h_max" min="0" step="1" max="255" shortname="h_max"/>
+                <dl_setting var="cbed_s_min" min="0" step="1" max="255" shortname="s_min"/>
+                <dl_setting var="cbed_s_max" min="0" step="1" max="255" shortname="s_max"/>
+                <dl_setting var="cbed_v_min" min="0" step="1" max="255" shortname="y_min"/>
+                <dl_setting var="cbed_v_max" min="0" step="1" max="255" shortname="y_max"/>
+
+                <dl_setting var="cbed_notgreen_h_min" min="0" step="1" max="255" shortname="ng_h_min"/>
+                <dl_setting var="cbed_notgreen_h_max" min="0" step="1" max="255" shortname="ng_h_max"/>
+                <dl_setting var="cbed_notgreen_s_min" min="0" step="1" max="255" shortname="ng_s_min"/>
+                <dl_setting var="cbed_notgreen_s_max" min="0" step="1" max="255" shortname="ng_s_max"/>
+                <dl_setting var="cbed_notgreen_v_min" min="0" step="1" max="255" shortname="ng_y_min"/>
+                <dl_setting var="cbed_notgreen_v_max" min="0" step="1" max="255" shortname="ng_y_max"/>
+
+                <dl_setting var="cbed_nonuniform_thresh" min="0" step="1" max="255" shortname="nonuni_th"/>
+                <dl_setting var="cbed_edge_radius_ratio_pct" min="1" step="1" max="100" shortname="edge_r_pct"/>
+                <dl_setting var="cbed_draw" min="0" step="1" max="1" values="False|True" shortname="draw"/>
+            </dl_settings>
+        </dl_settings>
+    </settings>
+
+    <dep>
+        <depends>video_thread</depends>
+    </dep>
+
+    <header>
+        <file name="cv_bottom_edge_detector.h"/>
+    </header>
+
+    <init fun="cv_bottom_edge_detector_init()"/>
+    <periodic fun="cv_bottom_edge_detector_periodic()" freq="50"/>
+
+    <makefile target="ap|nps">
+        <file name="cv_bottom_edge_detector.c"/>
+    </makefile>
+</module>
