@@ -514,11 +514,14 @@ int main(int argc, char *argv[])
     }
     printf("Found %zu images in %s\n", images.size(), folder.c_str());
 
-    /* bottom camera is disabled for this run: visualiser-only mode
-     * (keep code changes confined to this file so detectors/controllers
-     * are not modified). */
-        std::vector<std::string> bottom_images; /* empty -> no bottom processing */
-        bottom_images.clear();
+    /* try to load bottom camera images from Playground_Bottom (optional) */
+    std::string bottom_folder = "sw/airborne/modules/AF_8_V2/Playground_Bottom/20260313-105015";
+    auto bottom_images = collect_images(bottom_folder);
+    if (!bottom_images.empty()) {
+        printf("Found %zu bottom camera images in %s\n", bottom_images.size(), bottom_folder.c_str());
+    } else {
+        printf("Bottom camera folder not found or empty (optional)\n");
+    }
 
     /* init nodes */
     ground_edge_node_init();
