@@ -69,10 +69,10 @@ struct ObstacleConfig {
 /* ── New fused result ───────────────────────────────────────────────────── */
 struct obstacle_result {
   /* New fused outputs */
-  float obstacle_score;       // 0..1 normalised danger score (EMA-smoothed)
-  float obstacle_centroid_x;  // -1..1 lateral position (EMA-smoothed)
-  float obstacle_size;        // area fraction of non-green in front half
-  float green_ratio;          // green fraction of the whole image
+  float obstacle_score;       
+  float obstacle_centroid_x;  
+  float obstacle_size;     
+  float green_ratio;        
 
   /* Legacy-compatible outputs */
   float front_line_total;
