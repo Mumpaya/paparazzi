@@ -1,32 +1,3 @@
-/*
- * Copyright (C) 2026 Douwe Rijs <Douwe_r@standofl.nl>
- *
- * This file is part of paparazzi
- *
- * paparazzi is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2, or (at your option)
- * any later version.
- *
- * paparazzi is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with paparazzi; see the file COPYING.  If not, see
- * <http://www.gnu.org/licenses/>.
- */
-
-/** @file "modules/_test_module/test_module.c"
- * @author Douwe Rijs <Douwe_r@standofl.nl>
- * Edge-based floor avoider: uses OpenCV Canny edge detection on the bottom
- * camera.  The floor (green carpet) is smooth with few edges, while walls,
- * nets, poles, and other obstacles produce many edges.  When the edge
- * density rises above a threshold the drone turns away from the side with
- * more edges.  Runs in GUIDED mode.
- */
-
 #include "modules/_test_module/test_module.h"
 #include "modules/_test_module/edge_detector.h"
 #include "modules/computer_vision/cv.h"
@@ -68,12 +39,12 @@
 #define EDGE_DETECTOR_ABI_ID 2
 #endif
 
-// ── Tunable settings (GCS) ───────────────────────────────────────────────────
+// ── Tunable settings 
 float green_max_speed    = 0.5f;   // forward speed when safe [m/s]
 float green_heading_rate = 1.0f;   // turn rate when avoiding [rad/s]
-float edge_threshold     = 50.f;   // legacy threshold (px), kept for compat
+float edge_threshold     = 50.f;   // threshold (px)
 
-// ── Obstacle detector tunable settings (GCS) ─────────────────────────────────
+// ── Obstacle detector tunable settings
 float obs_score_threshold = 0.25f;
 float obs_ema_alpha       = 0.3f;
 float obs_w_ng            = 0.50f;
@@ -81,13 +52,13 @@ float obs_w_ed            = 0.30f;
 float obs_w_ll            = 0.20f;
 float obs_min_size        = 0.04f;
 int   obs_danger_confirm_frames = 3;
-int   obs_hsv_h_lo        = 10;   // beige/tan floor hue starts around 10 (OpenCV 0-180)
-int   obs_hsv_h_hi        = 35;   // upper bound for warm yellow-tan
-int   obs_hsv_s_lo        = 5;    // beige has very low saturation
-int   obs_hsv_s_hi        = 80;   // cap saturation — richer colours are obstacles
-int   obs_hsv_v_lo        = 120;  // floor is brightly lit
+int   obs_hsv_h_lo        = 10;   
+int   obs_hsv_h_hi        = 35;   
+int   obs_hsv_s_lo        = 5;   
+int   obs_hsv_s_hi        = 80;   
+int   obs_hsv_v_lo        = 120; 
 int   obs_hsv_v_hi        = 255;
-// ── State machine ─────────────────────────────────────────────────────────────
+// ── State machine
 enum edge_state_t {
   EDGE_SAFE,
   EDGE_OBSTACLE,
@@ -98,7 +69,7 @@ enum edge_state_t {
 
 static enum edge_state_t edge_state = EDGE_SAFE;  // start safe, fly forward
 
-// ── Shared vision data (written by camera thread, read by periodic) ──────────
+// ── Shared vision data (written by camera thread, read by periodic)
 static volatile float front_line_total = 0.f;
 static volatile float front_line_left  = 0.f;
 static volatile float front_line_right = 0.f;
@@ -119,15 +90,15 @@ static const int16_t frames_confirm_safe = 5;
 static int16_t  backup_cnt      = 0;
 static const int16_t backup_ticks = 5;  // 0.5s at 10 Hz
 
-// ── Two-full-rotation retreat logic ───────────────────────────────────────────
-static float    approach_heading     = 0.f;   // heading while flying forward (EDGE_SAFE)
+// ── Two-full-rotation retreat logic 
+static float    approach_heading     = 0.f;   // heading while flying forward
 static float    prev_turn_heading    = 0.f;   // previous psi sample during turn
 static float    accumulated_rotation = 0.f;   // total |delta-psi| during EDGE_TURNING
 static const float TWO_FULL_ROTATIONS = (float)(4.0 * M_PI);  // 2 × 360°
 static int16_t  retreat_cnt          = 0;
 static const int16_t retreat_ticks   = 10;    // 1 s at 10 Hz
 
-// ── Build ObstacleConfig from GCS-tunable variables ──────────────────────────
+// ── Build ObstacleConfig from GCS-tunable variables
 static struct ObstacleConfig build_obstacle_cfg(void)
 {
   struct ObstacleConfig cfg = obstacle_config_defaults();
@@ -145,7 +116,7 @@ static struct ObstacleConfig build_obstacle_cfg(void)
   return cfg;
 }
 
-// ── Vision callback — runs in camera thread ───────────────────────────────────
+// ── Vision callback — runs in camera thread
 static struct image_t *edge_cv_func(struct image_t *img,
                                     uint8_t camera_id __attribute__((unused)))
 {
@@ -196,7 +167,7 @@ static struct image_t *edge_cv_func(struct image_t *img,
   return NULL;
 }
 
-// ── Module init ───────────────────────────────────────────────────────────────
+// ── Module init 
 void init_func(void)
 {
   srand(time(NULL));
@@ -207,7 +178,7 @@ void init_func(void)
   VERBOSE_PRINT("Edge-based avoider initialised (bottom camera).\n");
 }
 
-// ── Helper: normalise angle to (-π, π] ───────────────────────────────────────
+// ── Helper: normalise angle
 static float wrap_pi(float a)
 {
   while (a >  (float)M_PI) a -= (float)(2.0 * M_PI);
@@ -215,7 +186,7 @@ static float wrap_pi(float a)
   return a;
 }
 
-// ── Module periodic — avoidance state machine ─────────────────────────────────
+// ── Module periodic — avoidance state machine
 void periodic_func(void)
 {
   // Publish detection via ABI (backwards-compatible: quality = score*1000, extra = found)

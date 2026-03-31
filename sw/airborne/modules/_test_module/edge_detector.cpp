@@ -1,22 +1,3 @@
-/*
- * @file "modules/_test_module/edge_detector.cpp"
- * Combined green-floor segmentation + edge/line obstacle detector.
- *
- * Pipeline:
- *   1. YUV422 → BGR → HSV + CIELAB; CLAHE on L channel
- *   2. Conservative green mask: HSV in-range AND LAB distance < thr
- *   3. Morphology open/close; remove tiny components
- *   4. Non-green blob/contour extraction
- *   5. Downscaled Canny + Hough lines
- *   6. Front-half grid: per-cell features (green_ratio, edge_density,
- *      max_line_len_norm, non_green_area)
- *   7. Per-cell score → global score + centroid_x
- *   8. EMA smoothing
- *   9. Debug overlay written back to YUV422 buffer
- *
- * The legacy detect_edges() is kept unchanged for backward compatibility.
- */
-
 #include "edge_detector.h"
 #include "opencv_image_functions.h"
 
@@ -151,9 +132,7 @@ static inline float clampf(float v, float lo, float hi)
   return v < lo ? lo : (v > hi ? hi : v);
 }
 
-/* ====================================================================== */
-/*  Legacy API – unchanged                                                */
-/* ====================================================================== */
+
 struct edge_result detect_edges(char *img, int width, int height,
                                 int canny_low, int canny_high)
 {
@@ -207,19 +186,17 @@ struct ObstacleConfig obstacle_config_defaults(void)
 {
   struct ObstacleConfig c;
   memset(&c, 0, sizeof(c));
+// these will be recalibrated later anyways
+c.hsv_h_lo = 10;   
+c.hsv_h_hi = 35;  
 
-  /* HSV range for beige/tan floor (H 0-180 in OpenCV)  */
-  /* Beige: low hue (yellow-tan side), low saturation, bright */
-c.hsv_h_lo = 10;   // warm yellow-tan starts ~10
-c.hsv_h_hi = 35;   // stays below pure green
+c.hsv_s_lo = 5;    
+c.hsv_s_hi = 80;   
 
-c.hsv_s_lo = 5;    // beige is barely saturated
-c.hsv_s_hi = 80;   // reject fully-saturated (non-floor) colours
-
-c.hsv_v_lo = 120;  // floor is well-lit
+c.hsv_v_lo = 120; 
 c.hsv_v_hi = 255;
 
-/* morphology */
+/* morphology for smoothing area */
 c.morph_ksize = 5;
 
 
@@ -254,7 +231,7 @@ c.morph_ksize = 5;
 }
 
 /* ====================================================================== */
-/*  Cached structuring elements (allocated once, reused every frame)       */
+/*  Cached structuring elements     */
 /* ====================================================================== */
 static Mat s_morph_kern;
 static int s_morph_ksize = 0;
